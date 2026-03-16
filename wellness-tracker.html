@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <title>Wellness Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            violet: {
+              50: '#F5F3FF', 100: '#EDE9FE', 200: '#DDD6FE',
+              300: '#C4B5FD', 400: '#A78BFA', 500: '#8B5CF6',
+              600: '#7C3AED', 700: '#6D28D9', 800: '#5B21B6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; }
+
+    /* ── Phone frame ── */
+    .phone-frame {
+      position: fixed;
+      inset: 0;
+      background: #F5F3FF;
+      overflow: hidden;
+    }
+    @media (min-width: 480px) {
+      body { background: #1C1A2E; }
+      .phone-frame {
+        inset: unset;
+        top: 50%;
+        left: 50%;
+        width: 390px;
+        height: min(844px, 100dvh);
+        transform: translate(-50%, -50%);
+        border-radius: 44px;
+        box-shadow:
+          0 0 0 1px rgba(255,255,255,0.10),
+          0 32px 80px rgba(0,0,0,0.55),
+          0 8px 24px rgba(0,0,0,0.30);
+      }
+    }
+
+    /* ── Press animation ── */
+    .press { transition: transform 0.13s cubic-bezier(0.36,0.07,0.19,0.97); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .press:active { transform: scale(0.93); }
+    .press-light:active { transform: scale(0.97); }
+
+    /* ── Hide scrollbar ── */
+    .no-scroll::-webkit-scrollbar { display: none; }
+    .no-scroll { scrollbar-width: none; }
+
+    /* ── Tab active pill ── */
+    .tab-pill-active {
+      background: white;
+      color: #6D28D9;
+      box-shadow: 0 2px 10px rgba(109,40,217,0.15);
+    }
+    .tab-pill-inactive { color: #9CA3AF; }
+
+    /* ── Nav active ── */
+    .nav-active { color: #7C3AED; }
+    .nav-inactive { color: #D1D5DB; }
+
+    /* ── Tile hover glow (desktop only) ── */
+    @media (hover: hover) {
+      .activity-tile:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.12); transform: translateY(-2px); }
+    }
+    .activity-tile { transition: transform 0.13s cubic-bezier(0.36,0.07,0.19,0.97), box-shadow 0.2s ease; }
+    .activity-tile:active { transform: scale(0.93); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Screen slide animation ── */
+    @keyframes slideInRight { from { opacity:0; transform:translateX(28px); } to { opacity:1; transform:translateX(0); } }
+    @keyframes slideInLeft  { from { opacity:0; transform:translateX(-28px); } to { opacity:1; transform:translateX(0); } }
+    .slide-in-right { animation: slideInRight 0.22s ease both; }
+    .slide-in-left  { animation: slideInLeft  0.22s ease both; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="root"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="supabase-config.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useCallback, useEffect } = React;
+
+    /* ── Read member info written by App.jsx before navigation ── */
+    const MEMBER_ID     = sessionStorage.getItem('wt_member_id') || null;
+    const MEMBER_NAME   = (sessionStorage.getItem('wt_name')   || '').trim() || 'You';
+    const MEMBER_AVATAR = (sessionStorage.getItem('wt_avatar') || '') || null;
+
+    /* ── Supabase helpers ── */
+    const sb = window.sb || null;
+
+    async function sbLoadWellness() {
+      if (!sb || !MEMBER_ID) return null;
+      const [{ data: acts }, { data: lvl }] = await Promise.all([
+        sb.from('allusbasecamp_wellness').select('*').eq('member_id', MEMBER_ID),
+        sb.from('allusbasecamp_wellness_level').select('level_idx').eq('member_id', MEMBER_ID).maybeSingle(),
+      ]);
+      return { acts: acts || [], levelIdx: lvl?.level_idx ?? null };
+    }
+
+    async function sbSaveActivity(id, status, freq, streak) {
+      if (!sb || !MEMBER_ID) return;
+      await sb.from('allusbasecamp_wellness').upsert(
+        { member_id: MEMBER_ID, activity_id: id, status, freq, streak, updated_at: new Date().toISOString() },
+        { onConflict: 'member_id,activity_id' }
+      );
+    }
+
+    async function sbSaveLevel(levelIdx) {
+      if (!sb || !MEMBER_ID) return;
+      await sb.from('allusbasecamp_wellness_level').upsert(
+        { member_id: MEMBER_ID, level_idx: levelIdx, updated_at: new Date().toISOString() },
+        { onConflict: 'member_id' }
+      );
+    }
+
+    /* ════════════════════════════════════════════════════
+       INLINE SVG ICON SYSTEM  (Lucide-style stroked icons)
+       ════════════════════════════════════════════════════ */
+    const Svg = ({ size = 24, className = '', children }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" strokeWidth="2"
+           strokeLinecap="round" strokeLinejoin="round"
+           className={className}>
+        {children}
+      </svg>
+    );
+
+    /* Salad leaf — Eat Healthy */
+    const IconSalad = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <path d="M7 21h10"/>
+        <path d="M12 21a9 9 0 0 0 9-9H3a9 9 0 0 0 9 9z"/>
+        <path d="M11.38 12a2.4 2.4 0 0 1-.4-4.77 2.4 2.4 0 0 1 3.2-3.19 2.4 2.4 0 0 1 3.47-.63 2.4 2.4 0 0 1 3.37 3.37 2.4 2.4 0 0 1-1.1 3.7 2.51 2.51 0 0 1 .03 1.1"/>
+        <path d="m13 12 4-4"/>
+        <path d="M10.9 7.25A3.99 3.99 0 0 0 4 10c0 .73.2 1.41.54 2"/>
+      </Svg>
+    );
+
+    /* Person walking — Go for a Walk */
+    const IconWalk = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <circle cx="13" cy="4" r="1"/>
+        <path d="M7 21l2-4"/>
+        <path d="M13 21v-4l-2-3 4-2"/>
+        <path d="m7 11 2-1 3 1 2-1 1 4"/>
+        <path d="m7 11 1-3 3.5-1 2.5 1.5"/>
+      </Svg>
+    );
+
+    /* Waves — Swim */
+    const IconWaves = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
+        <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
+        <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
+      </Svg>
+    );
+
+    /* Bike — Cycle */
+    const IconBike = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <circle cx="18.5" cy="17.5" r="3.5"/>
+        <circle cx="5.5" cy="17.5" r="3.5"/>
+        <circle cx="15" cy="5" r="1"/>
+        <path d="M12 17.5V14l-3-3 4-3 2 3h2"/>
+      </Svg>
+    );
+
+    /* Dumbbell-style sport — Badminton */
+    const IconBadminton = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <path d="m17.5 2.5 4 4-14 14-4-4z"/>
+        <path d="m21.5 6.5-4-4"/>
+        <path d="m3.5 20.5 4-4"/>
+        <circle cx="6" cy="18" r="1.5" fill="currentColor" stroke="none"/>
+      </Svg>
+    );
+
+    /* Book — Read Book */
+    const IconBook = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+        <line x1="12" y1="7" x2="16" y2="7"/>
+        <line x1="12" y1="11" x2="16" y2="11"/>
+      </Svg>
+    );
+
+    /* Plus — Add New */
+    const IconPlus = ({ size, cls }) => (
+      <Svg size={size} className={cls}>
+        <path d="M5 12h14"/><path d="M12 5v14"/>
+      </Svg>
+    );
+
+    /* Nav icons */
+    const IconHome   = ({ size, cls }) => <Svg size={size} className={cls}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></Svg>;
+    const IconTasks  = ({ size, cls }) => <Svg size={size} className={cls}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></Svg>;
+    const IconChart  = ({ size, cls }) => <Svg size={size} className={cls}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></Svg>;
+    const IconUser   = ({ size, cls }) => <Svg size={size} className={cls}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></Svg>;
+    const IconGem    = ({ size, cls }) => <Svg size={size} className={cls}><polygon points="6 3 18 3 22 9 12 22 2 9"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="12" y1="3" x2="6" y2="9"/><line x1="12" y1="3" x2="18" y2="9"/><line x1="12" y1="22" x2="6" y2="9"/><line x1="12" y1="22" x2="18" y2="9"/></Svg>;
+    const IconBack   = ({ size, cls }) => <Svg size={size} className={cls}><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></Svg>;
+    const IconChevronRight = ({ size, cls }) => <Svg size={size} className={cls}><path d="m9 18 6-6-6-6"/></Svg>;
+    const IconStar   = ({ size, cls }) => <Svg size={size} className={cls}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Svg>;
+    const IconFire   = ({ size, cls }) => <Svg size={size} className={cls}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></Svg>;
+
+    /* ════════════════════════════════════════════════════
+       DATA
+       ════════════════════════════════════════════════════ */
+    const ACTIVITIES = [
+      {
+        id: 'healthy', label: 'Eat Healthy', sub: 'Nutrition plan',
+        Icon: IconSalad,
+        bg: 'bg-green-100', iconBg: 'bg-green-200/70', iconCls: 'text-green-700',
+        border: 'border-green-200/80',
+        status: 'ongoing', streak: 0, freq: 'Daily',
+        tip: 'Focus on leafy greens, lean proteins, and whole grains. Avoid processed sugars.',
+      },
+      {
+        id: 'walk', label: 'Go for a Walk', sub: 'Cardio habit',
+        Icon: IconWalk,
+        bg: 'bg-blue-100', iconBg: 'bg-blue-200/70', iconCls: 'text-blue-700',
+        border: 'border-blue-200/80',
+        status: 'notplanned', streak: 0, freq: 'Daily',
+        tip: 'A brisk 20-minute walk can significantly boost your mood and energy levels.',
+      },
+      {
+        id: 'swim', label: 'Swim', sub: 'Full-body workout',
+        Icon: IconWaves,
+        bg: 'bg-cyan-100', iconBg: 'bg-cyan-200/70', iconCls: 'text-cyan-700',
+        border: 'border-cyan-200/80',
+        status: 'notplanned', streak: 0, freq: 'Weekly',
+        tip: 'Swimming is a low-impact, high-reward workout that engages your entire body.',
+      },
+      {
+        id: 'cycle', label: 'Cycle', sub: 'Endurance training',
+        Icon: IconBike,
+        bg: 'bg-orange-100', iconBg: 'bg-orange-200/70', iconCls: 'text-orange-700',
+        border: 'border-orange-200/80',
+        status: 'ongoing', streak: 0, freq: 'Daily',
+        tip: 'Cycling builds leg strength and cardiovascular endurance efficiently.',
+      },
+      {
+        id: 'badminton', label: 'Badminton', sub: 'Agility sport',
+        Icon: IconBadminton,
+        bg: 'bg-pink-100', iconBg: 'bg-pink-200/70', iconCls: 'text-pink-700',
+        border: 'border-pink-200/80',
+        status: 'notplanned', streak: 0, freq: '3×/week',
+        tip: 'Badminton improves reflexes, balance, and burns serious calories.',
+      },
+      {
+        id: 'read', label: 'Read Book', sub: 'Mental wellness',
+        Icon: IconBook,
+        bg: 'bg-violet-100', iconBg: 'bg-violet-200/70', iconCls: 'text-violet-700',
+        border: 'border-violet-200/80',
+        status: 'notplanned', streak: 0, freq: 'Daily',
+        tip: 'Reading before bed improves sleep quality and reduces stress by up to 68%.',
+      },
+    ];
+
+
+    const LEVELS = [
+      { label: 'Beginner',     color: 'text-violet-600 bg-violet-100' },
+      { label: 'Intermediate', color: 'text-amber-600  bg-amber-100'  },
+      { label: 'Advanced',     color: 'text-rose-600   bg-rose-100'   },
+    ];
+
+    const TABS = ['All', 'Ongoing', 'Not Planned'];
+
+    const STATUS_MAP = { ongoing: 'Ongoing', notplanned: 'Not Planned' };
+
+    const FREQ_OPTIONS = ['Daily', 'Weekdays', '3×/week', 'Weekly', 'Monthly'];
+
+    /* ════════════════════════════════════════════════════
+       STATUS BAR  (decorative)
+       ════════════════════════════════════════════════════ */
+
+    /* ════════════════════════════════════════════════════
+       HOME SCREEN
+       ════════════════════════════════════════════════════ */
+    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange }) => {
+      const [activeTab,       setActiveTab]       = useState('All');
+      const [showLevelPicker, setShowLevelPicker] = useState(false);
+
+      const currentLevel = LEVELS[levelIdx];
+
+      function pickLevel(idx) {
+        onLevelChange(idx);
+        setShowLevelPicker(false);
+      }
+
+      const filtered = activeTab === 'All'
+        ? activities
+        : activities.filter(a => STATUS_MAP[a.status] === activeTab);
+
+      return (
+        <div className="flex flex-col h-full">
+
+          {/* ── Back to Home ── */}
+          <div className="px-5 pt-1 pb-0 flex-shrink-0">
+            <a href="index.html"
+               className="inline-flex items-center gap-1.5 text-violet-600 font-semibold text-[13px] press-light"
+               style={{textDecoration:'none'}}>
+              <IconBack size={16} cls=""/>
+              All Us Basecamp
+            </a>
+          </div>
+
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto no-scroll px-5 pb-8">
+
+            {/* ── Profile row ── */}
+            <div className="flex items-center justify-between mt-2 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full ring-[3px] ring-violet-200/80 overflow-hidden flex-shrink-0">
+                    {MEMBER_AVATAR
+                      ? <img src={MEMBER_AVATAR} alt={MEMBER_NAME}
+                             style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}} />
+                      : <div className="w-full h-full bg-gradient-to-br from-violet-400 to-indigo-500
+                                        flex items-center justify-center text-white font-bold text-base">
+                          {MEMBER_NAME.charAt(0).toUpperCase()}
+                        </div>
+                    }
+                  </div>
+                  <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-violet-50"/>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-900 text-[15px]">{MEMBER_NAME}</span>
+                    {/* Tappable level badge */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowLevelPicker(p => !p)}
+                        className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold tracking-wide press-light flex items-center gap-1 ${currentLevel.color}`}>
+                        {currentLevel.label}
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="m6 9 6 6 6-6"/></svg>
+                      </button>
+                      {showLevelPicker && (
+                        <div className="absolute left-0 top-full mt-1.5 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50"
+                             style={{minWidth: 140}}>
+                          {LEVELS.map((lv, i) => (
+                            <button key={lv.label} onClick={() => pickLevel(i)}
+                                    className={`w-full text-left px-4 py-2.5 text-[13px] font-semibold flex items-center gap-2 press-light
+                                      ${i === levelIdx ? lv.color : 'text-gray-600 hover:bg-gray-50'}`}>
+                              {i === levelIdx && <span className="text-[10px]">✓</span>}
+                              {lv.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full bg-gradient-to-r
+                        ${levelIdx === 0 ? 'from-violet-400 to-violet-600 w-2/5' :
+                          levelIdx === 1 ? 'from-amber-400  to-amber-600  w-3/5' :
+                                           'from-rose-400   to-rose-600   w-full'}`}/>
+                    </div>
+                    <span className="text-[9px] text-gray-400 font-medium">
+                      {levelIdx === 0 ? '40%' : levelIdx === 1 ? '65%' : '100%'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-2xl bg-white shadow-sm flex items-center justify-center press-light">
+                <IconGem size={20} cls="text-violet-500"/>
+              </div>
+            </div>
+
+            {/* ── Title ── */}
+            <div className="mb-5">
+              <h1 className="text-[22px] font-black text-gray-900 leading-[1.2]">
+                Ready, {MEMBER_NAME}?<br/>Let's Stay Healthy! 🌿
+              </h1>
+              <p className="text-[13px] text-gray-400 mt-1.5 font-medium">
+                Track your habits and stay motivated
+              </p>
+            </div>
+
+            {/* ── Filter tabs ── */}
+            <div className="flex gap-2 overflow-x-auto no-scroll mb-5 -mx-1 px-1 pb-0.5">
+              {TABS.map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)}
+                        className={`flex-shrink-0 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 press-light
+                          ${activeTab === tab ? 'tab-pill-active' : 'tab-pill-inactive'}`}>
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+
+            {/* ── Activity tiles ── */}
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-gray-900 text-[16px]">{MEMBER_NAME}'s Activities</h2>
+              <button className="text-[12px] text-violet-600 font-semibold press-light">See all</button>
+            </div>
+
+            {filtered.length === 0 && (
+              <div className="text-center py-10 text-gray-400 text-sm italic">No activities in this category.</div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              {filtered.map(act => {
+                const { Icon } = act;
+                return (
+                  <button key={act.id}
+                          onClick={() => onSelectActivity(act)}
+                          className={`activity-tile ${act.bg} border ${act.border} rounded-2xl p-4
+                                      flex flex-col gap-3 text-left`}>
+                    {/* Icon circle */}
+                    <div className={`w-12 h-12 rounded-xl ${act.iconBg} flex items-center justify-center ${act.iconCls}`}>
+                      <Icon size={24} cls=""/>
+                    </div>
+                    {/* Label + status */}
+                    <div>
+                      <p className="font-bold text-gray-800 text-[14px] leading-tight">{act.label}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{act.sub}</p>
+                    </div>
+                    {/* Badge + streak row */}
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full
+                        ${act.status === 'ongoing' ? act.iconCls + ' bg-white/80' : 'text-gray-400 bg-gray-100'}`}>
+                        {STATUS_MAP[act.status]}
+                      </span>
+                      <span className="text-[12px] font-black text-gray-700 flex items-center gap-0.5">
+                        🔥{act.streak}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* ── Add New tile ── */}
+              <button onClick={() => {
+                        console.log('[Wellness Tracker] Add New clicked');
+                        alert('✨ Add New Activity — feature coming soon!');
+                      }}
+                      className="activity-tile border-2 border-dashed border-violet-200
+                                 bg-white/60 rounded-2xl p-4 flex flex-col gap-3 text-left
+                                 hover:border-violet-400 hover:bg-violet-50 transition-colors duration-200">
+                <div className="w-12 h-12 rounded-xl bg-violet-100 flex items-center justify-center text-violet-500">
+                  <IconPlus size={24} cls=""/>
+                </div>
+                <div>
+                  <p className="font-bold text-violet-500 text-[14px]">Add New</p>
+                  <p className="text-[11px] text-violet-300 mt-0.5">Create a habit</p>
+                </div>
+                <span className="self-start text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-violet-100 text-violet-500">
+                  Custom
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ════════════════════════════════════════════════════
+       DETAIL SCREEN
+       ════════════════════════════════════════════════════ */
+    const DetailScreen = ({ activity, onBack, onUpdate }) => {
+      const { Icon } = activity;
+
+      function setStatus(s)  { onUpdate(activity.id, { status: s }); }
+      function setFreq(f)    { onUpdate(activity.id, { freq: f }); }
+
+      return (
+        <div className="flex flex-col h-full slide-in-right">
+
+          {/* Back button */}
+          <button onClick={onBack}
+                  className="mx-5 mt-4 flex items-center gap-1.5 text-violet-600 font-semibold text-[14px] press w-fit">
+            <IconBack size={18} cls=""/>
+            Back
+          </button>
+
+          {/* Scrollable detail body */}
+          <div className="flex-1 overflow-y-auto no-scroll px-5 pb-12 mt-3">
+
+            {/* ── Hero card ── */}
+            <div className={`${activity.bg} rounded-3xl p-6 flex flex-col items-center gap-3 mb-5`}>
+              <div className={`w-20 h-20 rounded-2xl ${activity.iconBg} flex items-center justify-center ${activity.iconCls}`}
+                   style={{boxShadow:'0 4px 20px rgba(0,0,0,0.08)'}}>
+                <Icon size={44} cls=""/>
+              </div>
+              <div className="text-center">
+                <h1 className="text-[22px] font-black text-gray-900">{activity.label}</h1>
+                <p className="text-[13px] text-gray-500 mt-0.5">{activity.sub}</p>
+              </div>
+            </div>
+
+            {/* ── Status toggle ── */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Status</p>
+              <div className="flex gap-3">
+                {['ongoing','notplanned'].map(s => (
+                  <button key={s} onClick={() => setStatus(s)}
+                          className={`flex-1 py-3 rounded-xl text-[13px] font-bold transition-all press
+                            ${activity.status === s
+                              ? s === 'ongoing'
+                                ? 'bg-violet-600 text-white shadow-md'
+                                : 'bg-gray-200 text-gray-700'
+                              : 'bg-gray-100 text-gray-400'}`}>
+                    {s === 'ongoing' ? '✅ Ongoing' : '⏸ Not Planned'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Frequency picker ── */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Frequency</p>
+              <div className="flex flex-wrap gap-2">
+                {FREQ_OPTIONS.map(f => (
+                  <button key={f} onClick={() => setFreq(f)}
+                          className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-all press
+                            ${activity.freq === f
+                              ? 'bg-violet-600 text-white shadow-sm'
+                              : 'bg-gray-100 text-gray-500'}`}>
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Day streak ── */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Day Streak</p>
+                  <p className="text-[28px] font-black text-gray-800 leading-tight">{activity.streak} 🔥</p>
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                  <p className="text-[12px] text-gray-400 italic">
+                    {activity.streak === 0 ? 'Start today!' : 'Keep going!'}
+                  </p>
+                  {activity.streak > 0 && (
+                    <button
+                      onClick={() => onUpdate(activity.id, { streak: 0 })}
+                      className="text-[10px] font-semibold text-red-400 border border-red-200 rounded-full px-2.5 py-0.5 press-light hover:bg-red-50">
+                      ↺ Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Streak badge row: D / W / M ── */}
+              {(() => {
+                const s = activity.streak;
+                const months = Math.floor(s / 30);
+                const weeks  = Math.floor((s % 30) / 7);
+                const days   = s % 7;
+                const badges = [
+                  ...Array(months).fill({ label: 'M', cls: 'bg-rose-500   text-white' }),
+                  ...Array(weeks).fill({  label: 'W', cls: 'bg-violet-500 text-white' }),
+                  ...Array(days).fill({   label: 'D', cls: 'bg-gray-200   text-gray-600' }),
+                ];
+                if (badges.length === 0) return (
+                  <p className="text-[11px] text-gray-300 italic">Complete your first day to start tracking</p>
+                );
+                return (
+                  <div className="flex flex-wrap gap-1.5">
+                    {badges.map((b, i) => (
+                      <span key={i} className={`w-7 h-7 rounded-lg text-[10px] font-black flex items-center justify-center ${b.cls}`}>
+                        {b.label}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* ── Mission Accomplished ── */}
+            <button
+              onClick={() => onUpdate(activity.id, { streak: activity.streak + 1 })}
+              className="w-full mb-4 py-4 rounded-2xl font-black text-[16px] text-white press transition-all"
+              style={{background:'linear-gradient(135deg,#16a34a,#15803d)',
+                      boxShadow:'0 8px 28px rgba(22,163,74,0.38)'}}>
+              🎯 Mission Accomplished!
+            </button>
+
+            {/* ── About card ── */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <h2 className="font-bold text-gray-900 text-[15px] mb-2">Why it matters</h2>
+              <p className="text-[13px] text-gray-500 leading-relaxed">{activity.tip}</p>
+            </div>
+
+          </div>
+        </div>
+      );
+    };
+
+    /* ════════════════════════════════════════════════════
+       ROOT APP
+       ════════════════════════════════════════════════════ */
+    function App() {
+      const [page,       setPage]       = useState('home');
+      const [selected,   setSelected]   = useState(null);
+      const [activities, setActivities] = useState(ACTIVITIES);
+      const [levelIdx,   setLevelIdx]   = useState(0);
+      const [loading,    setLoading]    = useState(true);
+
+      /* ── Load from Supabase on mount ── */
+      useEffect(() => {
+        sbLoadWellness().then(result => {
+          if (result) {
+            if (result.acts.length > 0) {
+              setActivities(prev => prev.map(act => {
+                const row = result.acts.find(r => r.activity_id === act.id);
+                return row ? { ...act, status: row.status, freq: row.freq, streak: row.streak } : act;
+              }));
+            }
+            if (result.levelIdx !== null) setLevelIdx(result.levelIdx);
+          }
+        }).catch(console.error).finally(() => setLoading(false));
+      }, []);
+
+      const handleSelectActivity = useCallback((act) => {
+        setSelected(act);
+        setPage('detail');
+      }, []);
+
+      const handleUpdateActivity = useCallback((id, changes) => {
+        setActivities(prev => {
+          const next = prev.map(a => a.id === id ? { ...a, ...changes } : a);
+          const merged = next.find(a => a.id === id);
+          sbSaveActivity(id, merged.status, merged.freq, merged.streak).catch(console.error);
+          return next;
+        });
+        setSelected(prev => prev?.id === id ? { ...prev, ...changes } : prev);
+      }, []);
+
+      const handleLevelChange = useCallback((idx) => {
+        setLevelIdx(idx);
+        sbSaveLevel(idx).catch(console.error);
+      }, []);
+
+      const handleBack = useCallback(() => {
+        setPage('home');
+        setSelected(null);
+      }, []);
+
+      if (loading) return (
+        <div className="phone-frame flex items-center justify-center">
+          <div className="text-center">
+            <div style={{width:36,height:36,border:'3px solid #DDD6FE',borderTopColor:'#7C3AED',borderRadius:'50%',animation:'spin 0.7s linear infinite',margin:'0 auto 12px'}}/>
+            <p style={{color:'#7C3AED',fontWeight:700,fontSize:14}}>Loading…</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="phone-frame select-none">
+          {page === 'home' && (
+            <HomeScreen
+              activities={activities}
+              onSelectActivity={handleSelectActivity}
+              levelIdx={levelIdx}
+              onLevelChange={handleLevelChange}
+            />
+          )}
+          {page === 'detail' && selected && (
+            <DetailScreen activity={selected} onBack={handleBack} onUpdate={handleUpdateActivity} />
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
