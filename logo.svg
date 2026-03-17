@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 235" fill="none">
+  <!--
+    Logo: cream "P" letterform + dark-navy swoosh tail.
+    The cream P sits on top; the navy swoosh occupies the lower-right
+    area and curls beyond the P outline for a dynamic feel.
+  -->
+
+  <!-- Cream P with bowl counter (evenodd creates the interior cutout) -->
+  <path fill="#EDE8D0" fill-rule="evenodd" d="
+    M 22 18
+    L 22 220
+    L 68 220
+    L 68 132
+    C 108 134 162 128 168 84
+    C 174 40 68 18 22 18
+    Z
+
+    M 68 57
+    C 128 57 136 73 136 84
+    C 136 95 128 113 68 113
+    Z
+  "/>
+
+  <!-- Dark-navy swoosh — sweeps from bowl base outward and back -->
+  <path fill="#1B3568" d="
+    M 22 148
+    L 22 220
+    L 68 220
+    L 68 194
+    C 90 202 118 202 142 190
+    C 166 178 180 156 178 130
+    C 176 104 162 86 140 78
+    L 136 94
+    C 152 100 162 114 163 133
+    C 164 152 153 168 134 178
+    C 115 188 88 188 68 180
+    L 68 132
+    C 55 134 36 140 22 148
+    Z
+  "/>
+</svg>

@@ -237,7 +237,7 @@ html, body {
 /* ── CTA area ── */
 .cta-area {
   flex-shrink: 0;
-  padding: 12px 24px 20px;
+  padding: 12px 24px calc(64px + var(--sab));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -702,6 +702,209 @@ html, body {
   white-space: nowrap; z-index: 200;
 }
 .toast.show { opacity: 1; }
+
+/* ── Leaflet pending-pin pulse ── */
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 4px rgba(99,102,241,0.4); }
+  50%      { box-shadow: 0 0 0 8px rgba(99,102,241,0.1); }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BASECAMP CARDS  (CommonAreaScreen modern tiles)
+   ════════════════════════════════════════════════════════════════ */
+.basecamp-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 18px;
+  border-radius: 18px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.13);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.basecamp-card:active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+
+/* "Create New Memories" dashed button */
+.create-memories-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  margin-top: 4px;
+  background: white;
+  border: 2.5px dashed #c7d2fe;
+  cursor: pointer;
+  color: #6366f1;
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-family: inherit;
+  box-shadow: 0 2px 10px rgba(99,102,241,0.07);
+  transition: background 0.14s, transform 0.14s;
+  -webkit-tap-highlight-color: transparent;
+}
+.create-memories-btn:active { background: #eef2ff; transform: scale(0.98); }
+
+/* ════════════════════════════════════════════════════════════════
+   VACATION PLAN SCREEN
+   ════════════════════════════════════════════════════════════════ */
+.vac-section {
+  background: white;
+  border-radius: 14px;
+  padding: 14px 14px 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+}
+.vac-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 10px;
+  letter-spacing: 0.01em;
+}
+.vac-date-input {
+  width: 100%;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: max(16px, 0.88rem);
+  font-family: inherit;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  box-sizing: border-box;
+}
+.vac-date-input:focus { border-color: #6366f1; background: white; }
+.vac-search-input {
+  flex: 1;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+}
+.vac-search-input:focus { border-color: #6366f1; background: white; }
+.vac-search-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: none;
+  background: #6366f1;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.vac-search-btn:disabled { opacity: 0.6; cursor: wait; }
+
+/* ════════════════════════════════════════════════════════════════
+   MEMORIES TAB — filter carousel + list items
+   ════════════════════════════════════════════════════════════════ */
+
+/* Hide webkit scrollbar on the filter carousel track */
+.filter-carousel::-webkit-scrollbar { display: none; }
+
+/* Legacy .mem-chip kept for any remaining usages */
+.mem-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #FDFBF7;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+.mem-chip--active {
+  background: #1e3a8a;
+  border-color: #1e3a8a;
+  color: white;
+}
+
+.mem-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  background: white;
+  border-radius: 14px;
+  margin-bottom: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.mem-list-item:active {
+  transform: scale(0.98);
+  box-shadow: none;
+}
+
+/* Create Activity Modal */
+.create-act-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BRAND LOGO  (subtle watermark at bottom of home screen)
+   ════════════════════════════════════════════════════════════════ */
+.brand-logo {
+  position: absolute;
+  bottom: calc(var(--sab) + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-height: 38px;
+  width: auto;
+
+  /* Non-distracting: desaturated + low opacity */
+  filter: grayscale(1) brightness(0.55);
+  opacity: 0.32;
+
+  /* Crisp rendering at small sizes */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+
+  /* Smooth hover reveal */
+  transition: opacity 0.28s ease, filter 0.28s ease;
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.brand-logo:hover {
+  opacity: 0.68;
+  filter: grayscale(0) brightness(1);
+}
+
+/* On very small screens keep it away from the dots */
+@media (max-height: 680px) {
+  .brand-logo { bottom: calc(var(--sab) + 8px); max-height: 30px; }
+  .cta-area { padding-bottom: calc(52px + var(--sab)); }
+}
 
 /* ════════════════════════════════════════════════════════════════
    DESKTOP PHONE FRAME

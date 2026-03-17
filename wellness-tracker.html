@@ -95,12 +95,19 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script type="text/babel" data-presets="react">
-    const { useState, useCallback, useEffect } = React;
+    const { useState, useCallback, useEffect, useRef } = React;
 
     /* ── Read member info written by App.jsx before navigation ── */
     const MEMBER_ID     = sessionStorage.getItem('wt_member_id') || null;
     const MEMBER_NAME   = (sessionStorage.getItem('wt_name')   || '').trim() || 'You';
     const MEMBER_AVATAR = (sessionStorage.getItem('wt_avatar') || '') || null;
+
+    /* ── Emoji avatar presets ── */
+    const AVATAR_EMOJIS = [
+      '🐱','🐶','🐼','🦁','🦊','🐸','🐧','🦋',
+      '🌸','🌟','🔥','⚡','🌈','🎯','🚀','👑',
+      '🎸','🌺','🦄','🐯','🌙','💎','🏄','🎨','🧙',
+    ];
 
     /* ── Supabase helpers ── */
     const sb = window.sb || null;
@@ -127,6 +134,81 @@
       await sb.from('allusbasecamp_wellness_level').upsert(
         { member_id: MEMBER_ID, level_idx: levelIdx, updated_at: new Date().toISOString() },
         { onConflict: 'member_id' }
+      );
+    }
+
+    /* Upload a photo file or save an emoji string as the member's avatar */
+    async function sbUpdateMemberAvatar(file, emojiStr) {
+      if (!sb || !MEMBER_ID) return null;
+      let avatar_url = emojiStr || null;
+
+      if (file) {
+        const ext  = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const path = `members/${MEMBER_ID}/avatar.${ext}`;
+        // Remove old variants first
+        await sb.storage.from('member-avatars').remove(
+          ['jpg','jpeg','png','webp','gif','heic'].map(e => `members/${MEMBER_ID}/avatar.${e}`)
+        );
+        const { error: upErr } = await sb.storage
+          .from('member-avatars')
+          .upload(path, file, { upsert: true, contentType: file.type });
+        if (!upErr) {
+          const { data: urlData } = sb.storage.from('member-avatars').getPublicUrl(path);
+          avatar_url = `${urlData.publicUrl}?t=${Date.now()}`;
+        }
+      }
+
+      const { error } = await sb.from('allusbasecamp_members').update({ avatar_url }).eq('id', MEMBER_ID);
+      if (error) throw error;
+      return avatar_url;
+    }
+
+    /* Save / load custom activity definitions per member */
+    async function sbSaveCustomActs(defs) {
+      if (!sb || !MEMBER_ID) return;
+      await sb.from('allusbasecamp_settings').upsert(
+        { key: `wt_custom_acts_${MEMBER_ID}`, value: JSON.stringify(defs), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      );
+    }
+
+    async function sbLoadCustomActs() {
+      if (!sb || !MEMBER_ID) return [];
+      const { data } = await sb.from('allusbasecamp_settings')
+        .select('value').eq('key', `wt_custom_acts_${MEMBER_ID}`).maybeSingle();
+      if (!data?.value) return [];
+      try { return JSON.parse(data.value); } catch { return []; }
+    }
+
+    /* Per-member hidden (removed) built-in activity IDs */
+    async function sbLoadHiddenActs() {
+      if (!sb || !MEMBER_ID) return [];
+      const { data } = await sb.from('allusbasecamp_settings')
+        .select('value').eq('key', `wt_hidden_acts_${MEMBER_ID}`).maybeSingle();
+      if (!data?.value) return [];
+      try { return JSON.parse(data.value); } catch { return []; }
+    }
+    async function sbSaveHiddenActs(ids) {
+      if (!sb || !MEMBER_ID) return;
+      await sb.from('allusbasecamp_settings').upsert(
+        { key: `wt_hidden_acts_${MEMBER_ID}`, value: JSON.stringify(ids), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      );
+    }
+
+    /* Per-member custom tip text overrides — stored as { activity_id: "tip text" } */
+    async function sbLoadCustomTips() {
+      if (!sb || !MEMBER_ID) return {};
+      const { data } = await sb.from('allusbasecamp_settings')
+        .select('value').eq('key', `wt_tips_${MEMBER_ID}`).maybeSingle();
+      if (!data?.value) return {};
+      try { return JSON.parse(data.value); } catch { return {}; }
+    }
+    async function sbSaveCustomTips(tips) {
+      if (!sb || !MEMBER_ID) return;
+      await sb.from('allusbasecamp_settings').upsert(
+        { key: `wt_tips_${MEMBER_ID}`, value: JSON.stringify(tips), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
       );
     }
 
@@ -287,18 +369,290 @@
 
     const FREQ_OPTIONS = ['Daily', 'Weekdays', '3×/week', 'Weekly', 'Monthly'];
 
+    const COLOR_THEMES = [
+      { key: 'violet', label: 'Violet', bg: 'bg-violet-100', iconBg: 'bg-violet-200/70', iconCls: 'text-violet-700', border: 'border-violet-200/80', dot: '#7C3AED' },
+      { key: 'green',  label: 'Green',  bg: 'bg-green-100',  iconBg: 'bg-green-200/70',  iconCls: 'text-green-700',  border: 'border-green-200/80',  dot: '#16a34a' },
+      { key: 'blue',   label: 'Blue',   bg: 'bg-blue-100',   iconBg: 'bg-blue-200/70',   iconCls: 'text-blue-700',   border: 'border-blue-200/80',   dot: '#2563eb' },
+      { key: 'orange', label: 'Orange', bg: 'bg-orange-100', iconBg: 'bg-orange-200/70', iconCls: 'text-orange-700', border: 'border-orange-200/80', dot: '#ea580c' },
+      { key: 'pink',   label: 'Pink',   bg: 'bg-pink-100',   iconBg: 'bg-pink-200/70',   iconCls: 'text-pink-700',   border: 'border-pink-200/80',   dot: '#db2777' },
+      { key: 'cyan',   label: 'Cyan',   bg: 'bg-cyan-100',   iconBg: 'bg-cyan-200/70',   iconCls: 'text-cyan-700',   border: 'border-cyan-200/80',   dot: '#0891b2' },
+      { key: 'amber',  label: 'Amber',  bg: 'bg-amber-100',  iconBg: 'bg-amber-200/70',  iconCls: 'text-amber-700',  border: 'border-amber-200/80',  dot: '#d97706' },
+      { key: 'rose',   label: 'Rose',   bg: 'bg-rose-100',   iconBg: 'bg-rose-200/70',   iconCls: 'text-rose-700',   border: 'border-rose-200/80',   dot: '#e11d48' },
+    ];
+
+    const ACTIVITY_ICONS = [
+      '🏋️','🧘','🚴','🏊','🎯','📚','🧠','🏃','🤸',
+      '⚽','🏀','🎾','🏓','🧗','🥊','🎿','🌿','🍎',
+      '💊','💤','🎵','🎨','✍️','🌅','💧','🥗','🌱',
+      '🌊','🧩','🎭','🎮','🏌️','🤺','🥋','🏹','🦯',
+    ];
+
     /* ════════════════════════════════════════════════════
        STATUS BAR  (decorative)
        ════════════════════════════════════════════════════ */
 
     /* ════════════════════════════════════════════════════
+       ADD ACTIVITY SHEET
+       ════════════════════════════════════════════════════ */
+    function AddActivitySheet({ onClose, onSave }) {
+      const [name,          setName]          = useState('');
+      const [sub,           setSub]           = useState('');
+      const [tip,           setTip]           = useState('');
+      const [selectedIcon,  setSelectedIcon]  = useState('🏋️');
+      const [selectedColor, setSelectedColor] = useState('violet');
+      const [saving,        setSaving]        = useState(false);
+
+      const theme = COLOR_THEMES.find(t => t.key === selectedColor) || COLOR_THEMES[0];
+
+      async function handleCreate() {
+        if (!name.trim()) return;
+        const newAct = {
+          id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          label:     name.trim(),
+          sub:       sub.trim()  || 'Custom activity',
+          tip:       tip.trim()  || 'Build this habit consistently for lasting results.',
+          iconEmoji: selectedIcon,
+          colorKey:  selectedColor,
+          bg:        theme.bg,
+          iconBg:    theme.iconBg,
+          iconCls:   theme.iconCls,
+          border:    theme.border,
+          status:    'notplanned',
+          streak:    0,
+          freq:      'Daily',
+          isCustom:  true,
+        };
+        setSaving(true);
+        try { await onSave(newAct); } finally { setSaving(false); }
+      }
+
+      return (
+        <div className="absolute inset-0 z-50 flex items-end"
+             style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+             onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className="w-full bg-white rounded-t-3xl shadow-2xl"
+               style={{ maxHeight: '92%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+
+            {/* Sticky header */}
+            <div className="sticky top-0 bg-white px-5 pt-4 pb-3 border-b border-gray-100 z-10">
+              <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3" />
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-gray-900 text-[18px]">New Activity</h3>
+                <button onClick={onClose}
+                  className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[14px] press-light">
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 pb-10 pt-4" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* Live preview tile */}
+              <div className={`${theme.bg} rounded-2xl p-4 flex items-center gap-3 border ${theme.border}`}>
+                <div className={`w-12 h-12 rounded-xl ${theme.iconBg} flex items-center justify-center`}
+                     style={{ fontSize: '1.6rem', lineHeight: 1 }}>
+                  {selectedIcon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p className={`font-bold text-[15px] leading-tight ${name ? 'text-gray-800' : 'text-gray-400'}`}>
+                    {name || 'Activity name…'}
+                  </p>
+                  <p className="text-[12px] text-gray-400 mt-0.5">{sub || 'Category'}</p>
+                </div>
+                <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-gray-100 text-gray-400`}>
+                  Not Planned
+                </span>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                  Activity Name *
+                </label>
+                <input
+                  value={name} onChange={e => setName(e.target.value)} maxLength={30}
+                  placeholder="e.g. Morning Yoga, Journaling…"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-medium text-gray-800 outline-none"
+                  style={{ fontSize: 'max(16px,1rem)' }} />
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                  Category
+                </label>
+                <input
+                  value={sub} onChange={e => setSub(e.target.value)} maxLength={30}
+                  placeholder="e.g. Flexibility, Mindfulness, Nutrition…"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 font-medium text-gray-800 outline-none"
+                  style={{ fontSize: 'max(16px,1rem)' }} />
+              </div>
+
+              {/* Why it matters */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                  Why it matters
+                </label>
+                <textarea
+                  value={tip} onChange={e => setTip(e.target.value)} maxLength={220} rows={3}
+                  placeholder="Describe why this habit is beneficial for you…"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-700 outline-none resize-none"
+                  style={{ fontSize: 'max(16px,1rem)' }} />
+              </div>
+
+              {/* Icon picker */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                  Pick an Icon
+                </label>
+                <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+                  {ACTIVITY_ICONS.map(icon => (
+                    <button key={icon} onClick={() => setSelectedIcon(icon)}
+                      className={`rounded-xl py-2 press transition-all ${selectedIcon === icon ? 'bg-violet-100 ring-2 ring-violet-400' : 'bg-gray-50'}`}
+                      style={{ fontSize: '1.5rem', lineHeight: 1.3 }}>
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Color theme */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                  Color Theme
+                </label>
+                <div className="flex gap-3 flex-wrap">
+                  {COLOR_THEMES.map(t => (
+                    <button key={t.key} onClick={() => setSelectedColor(t.key)}
+                      className={`w-9 h-9 rounded-full press-light transition-all ${selectedColor === t.key ? 'ring-[3px] ring-offset-2 ring-gray-500 scale-110' : 'opacity-80'}`}
+                      style={{ background: t.dot }} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Create button */}
+              <button onClick={handleCreate} disabled={!name.trim() || saving}
+                className="w-full py-4 rounded-2xl font-black text-[16px] text-white press"
+                style={{
+                  background:  (!name.trim() || saving) ? '#d1d5db' : 'linear-gradient(135deg,#7C3AED,#6D28D9)',
+                  boxShadow:   (!name.trim() || saving) ? 'none'    : '0 8px 24px rgba(109,40,217,0.35)',
+                  cursor:      (!name.trim() || saving) ? 'default'  : 'pointer',
+                }}>
+                {saving ? 'Creating…' : '＋ Create Activity'}
+              </button>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ════════════════════════════════════════════════════
+       AVATAR UPLOAD SHEET
+       ════════════════════════════════════════════════════ */
+    function AvatarSheet({ onClose, onSave }) {
+      const fileRef          = useRef(null);
+      const [saving, setSaving] = useState(false);
+
+      async function handleFile(e) {
+        const f = e.target.files[0];
+        if (!f) return;
+        e.target.value = '';
+        setSaving(true);
+        try { await onSave(f, null); } finally { setSaving(false); }
+      }
+
+      async function handleEmoji(emoji) {
+        setSaving(true);
+        try { await onSave(null, `emoji:${emoji}`); } finally { setSaving(false); }
+      }
+
+      return (
+        <div className="absolute inset-0 z-50 flex items-end"
+             style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
+             onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className="w-full bg-white rounded-t-3xl p-5 pb-10 shadow-2xl"
+               style={{ maxHeight: '72%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+
+            {/* Handle */}
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+
+            <h3 className="font-bold text-gray-900 text-[17px] text-center mb-5">Change Photo</h3>
+
+            {/* Upload photo */}
+            <button onClick={() => fileRef.current?.click()} disabled={saving}
+              className="w-full py-3.5 rounded-2xl font-bold text-[15px] text-white press mb-5 flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg,#7C3AED,#6D28D9)', opacity: saving ? 0.6 : 1 }}>
+              📷 Upload Photo
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-[12px] text-gray-400 font-medium">or pick an avatar</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+
+            {/* Emoji grid */}
+            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(5,1fr)' }}>
+              {AVATAR_EMOJIS.map(emoji => (
+                <button key={emoji} onClick={() => handleEmoji(emoji)} disabled={saving}
+                  className="text-[1.7rem] py-2 rounded-2xl press"
+                  style={{ background: '#F5F3FF', lineHeight: 1.4, opacity: saving ? 0.6 : 1 }}>
+                  {emoji}
+                </button>
+              ))}
+            </div>
+
+          </div>
+        </div>
+      );
+    }
+
+    /* ════════════════════════════════════════════════════
        HOME SCREEN
        ════════════════════════════════════════════════════ */
-    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange }) => {
+    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange, onOpenAddSheet }) => {
       const [activeTab,       setActiveTab]       = useState('All');
       const [showLevelPicker, setShowLevelPicker] = useState(false);
+      const [avatarUrl,       setAvatarUrl]       = useState(MEMBER_AVATAR);
+      const [showAvatarSheet, setShowAvatarSheet] = useState(false);
 
       const currentLevel = LEVELS[levelIdx];
+
+      /* Render avatar content, handling emoji: prefix */
+      function renderAvatar() {
+        if (avatarUrl && avatarUrl.startsWith('emoji:')) {
+          return (
+            <div className="w-full h-full flex items-center justify-center" style={{ fontSize: '1.5rem', lineHeight: 1 }}>
+              {avatarUrl.slice(6)}
+            </div>
+          );
+        }
+        if (avatarUrl) {
+          return <img src={avatarUrl} alt={MEMBER_NAME} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />;
+        }
+        return (
+          <div className="w-full h-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-white font-bold text-base">
+            {MEMBER_NAME.charAt(0).toUpperCase()}
+          </div>
+        );
+      }
+
+      async function handleAvatarSave(file, emojiStr) {
+        try {
+          const newUrl = await sbUpdateMemberAvatar(file, emojiStr);
+          if (newUrl) {
+            setAvatarUrl(newUrl);
+            sessionStorage.setItem('wt_avatar', newUrl);
+          }
+        } catch (err) {
+          console.error('Avatar update failed:', err);
+        } finally {
+          setShowAvatarSheet(false);
+        }
+      }
 
       function pickLevel(idx) {
         onLevelChange(idx);
@@ -328,19 +682,20 @@
             {/* ── Profile row ── */}
             <div className="flex items-center justify-between mt-2 mb-5">
               <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="w-12 h-12 rounded-full ring-[3px] ring-violet-200/80 overflow-hidden flex-shrink-0">
-                    {MEMBER_AVATAR
-                      ? <img src={MEMBER_AVATAR} alt={MEMBER_NAME}
-                             style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}} />
-                      : <div className="w-full h-full bg-gradient-to-br from-violet-400 to-indigo-500
-                                        flex items-center justify-center text-white font-bold text-base">
-                          {MEMBER_NAME.charAt(0).toUpperCase()}
-                        </div>
-                    }
+                {/* Tappable avatar — opens upload / emoji sheet */}
+                <button className="relative press-light flex-shrink-0"
+                        onClick={() => setShowAvatarSheet(true)}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+                  <div className="w-12 h-12 rounded-full overflow-hidden"
+                       style={{ boxShadow: '0 0 0 3px rgba(167,139,250,0.5)' }}>
+                    {renderAvatar()}
                   </div>
-                  <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-violet-50"/>
-                </div>
+                  {/* Camera badge */}
+                  <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full border-2 border-[#F5F3FF] flex items-center justify-center"
+                       style={{ background: '#7C3AED', fontSize: '9px' }}>
+                    📷
+                  </div>
+                </button>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-gray-900 text-[15px]">{MEMBER_NAME}</span>
@@ -427,7 +782,10 @@
                                       flex flex-col gap-3 text-left`}>
                     {/* Icon circle */}
                     <div className={`w-12 h-12 rounded-xl ${act.iconBg} flex items-center justify-center ${act.iconCls}`}>
-                      <Icon size={24} cls=""/>
+                      {act.iconEmoji
+                        ? <span style={{ fontSize: '1.5rem', lineHeight: 1 }}>{act.iconEmoji}</span>
+                        : <Icon size={24} cls="" />
+                      }
                     </div>
                     {/* Label + status */}
                     <div>
@@ -449,10 +807,7 @@
               })}
 
               {/* ── Add New tile ── */}
-              <button onClick={() => {
-                        console.log('[Wellness Tracker] Add New clicked');
-                        alert('✨ Add New Activity — feature coming soon!');
-                      }}
+              <button onClick={onOpenAddSheet}
                       className="activity-tile border-2 border-dashed border-violet-200
                                  bg-white/60 rounded-2xl p-4 flex flex-col gap-3 text-left
                                  hover:border-violet-400 hover:bg-violet-50 transition-colors duration-200">
@@ -469,6 +824,15 @@
               </button>
             </div>
           </div>
+
+          {/* Avatar upload / emoji picker sheet */}
+          {showAvatarSheet && (
+            <AvatarSheet
+              onClose={() => setShowAvatarSheet(false)}
+              onSave={handleAvatarSave}
+            />
+          )}
+
         </div>
       );
     };
@@ -476,11 +840,21 @@
     /* ════════════════════════════════════════════════════
        DETAIL SCREEN
        ════════════════════════════════════════════════════ */
-    const DetailScreen = ({ activity, onBack, onUpdate }) => {
+    const DetailScreen = ({ activity, onBack, onUpdate, onRemove, onUpdateTip }) => {
       const { Icon } = activity;
+      const [editingTip, setEditingTip] = useState(false);
+      const [tipDraft,   setTipDraft]   = useState(activity.tip || '');
+
+      /* Keep tipDraft in sync if tip changes from outside (e.g. after save) */
+      useEffect(() => { setTipDraft(activity.tip || ''); }, [activity.tip]);
 
       function setStatus(s)  { onUpdate(activity.id, { status: s }); }
       function setFreq(f)    { onUpdate(activity.id, { freq: f }); }
+
+      function handleSaveTip() {
+        onUpdateTip && onUpdateTip(activity.id, tipDraft.trim() || activity.tip);
+        setEditingTip(false);
+      }
 
       return (
         <div className="flex flex-col h-full slide-in-right">
@@ -499,7 +873,10 @@
             <div className={`${activity.bg} rounded-3xl p-6 flex flex-col items-center gap-3 mb-5`}>
               <div className={`w-20 h-20 rounded-2xl ${activity.iconBg} flex items-center justify-center ${activity.iconCls}`}
                    style={{boxShadow:'0 4px 20px rgba(0,0,0,0.08)'}}>
-                <Icon size={44} cls=""/>
+                {activity.iconEmoji
+                  ? <span style={{ fontSize: '2.8rem', lineHeight: 1 }}>{activity.iconEmoji}</span>
+                  : <Icon size={44} cls="" />
+                }
               </div>
               <div className="text-center">
                 <h1 className="text-[22px] font-black text-gray-900">{activity.label}</h1>
@@ -597,11 +974,51 @@
               🎯 Mission Accomplished!
             </button>
 
-            {/* ── About card ── */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm">
-              <h2 className="font-bold text-gray-900 text-[15px] mb-2">Why it matters</h2>
-              <p className="text-[13px] text-gray-500 leading-relaxed">{activity.tip}</p>
+            {/* ── Why it matters (editable) ── */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-gray-900 text-[15px]">Why it matters</h2>
+                {!editingTip && (
+                  <button onClick={() => setEditingTip(true)}
+                    className="flex items-center gap-1 text-[12px] text-violet-500 font-semibold press-light">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit
+                  </button>
+                )}
+              </div>
+              {editingTip ? (
+                <>
+                  <textarea
+                    value={tipDraft}
+                    onChange={e => setTipDraft(e.target.value)}
+                    rows={4} maxLength={300}
+                    className="w-full bg-gray-50 border border-violet-200 rounded-xl px-3 py-2.5 text-[13px] text-gray-700 outline-none resize-none"
+                    style={{ fontSize: 'max(16px,1rem)' }}
+                    autoFocus />
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={handleSaveTip}
+                      className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white press"
+                      style={{ background: 'linear-gradient(135deg,#7C3AED,#6D28D9)' }}>
+                      Save
+                    </button>
+                    <button onClick={() => { setTipDraft(activity.tip || ''); setEditingTip(false); }}
+                      className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold bg-gray-100 text-gray-600 press-light">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[13px] text-gray-500 leading-relaxed">{activity.tip}</p>
+              )}
             </div>
+
+            {/* ── Remove / Delete activity (all activities) ── */}
+            <button
+              onClick={() => onRemove && onRemove(activity.id)}
+              className="w-full py-3.5 rounded-2xl font-bold text-[14px] press mb-2"
+              style={{ background: '#fff1f2', color: '#e11d48', border: '1.5px solid #fecdd3' }}>
+              {activity.isCustom ? '🗑 Delete Activity' : '✕ Remove from My List'}
+            </button>
 
           </div>
         </div>
@@ -612,25 +1029,57 @@
        ROOT APP
        ════════════════════════════════════════════════════ */
     function App() {
-      const [page,       setPage]       = useState('home');
-      const [selected,   setSelected]   = useState(null);
-      const [activities, setActivities] = useState(ACTIVITIES);
-      const [levelIdx,   setLevelIdx]   = useState(0);
-      const [loading,    setLoading]    = useState(true);
+      const [page,        setPage]        = useState('home');
+      const [selected,    setSelected]    = useState(null);
+      const [activities,  setActivities]  = useState(ACTIVITIES);
+      const [customDefs,  setCustomDefs]  = useState([]);   // persisted definitions
+      const [levelIdx,    setLevelIdx]    = useState(0);
+      const [loading,     setLoading]     = useState(true);
+      const [showAddSheet,  setShowAddSheet]  = useState(false);
+      const [hiddenActs,    setHiddenActs]    = useState([]);
+      const [customTips,    setCustomTips]    = useState({});
 
-      /* ── Load from Supabase on mount ── */
+      /* ── Load everything from Supabase in one round-trip ── */
       useEffect(() => {
-        sbLoadWellness().then(result => {
-          if (result) {
-            if (result.acts.length > 0) {
-              setActivities(prev => prev.map(act => {
-                const row = result.acts.find(r => r.activity_id === act.id);
-                return row ? { ...act, status: row.status, freq: row.freq, streak: row.streak } : act;
-              }));
-            }
-            if (result.levelIdx !== null) setLevelIdx(result.levelIdx);
-          }
-        }).catch(console.error).finally(() => setLoading(false));
+        Promise.all([
+          sbLoadWellness(),
+          sbLoadCustomActs(),
+          sbLoadHiddenActs(),
+          sbLoadCustomTips(),
+        ]).then(([result, defs, hidden, tips]) => {
+          const wellnessRows = result?.acts || [];
+
+          // Build hydrated built-in list (skip hidden, apply custom tips)
+          const builtIn = ACTIVITIES
+            .filter(a => !hidden.includes(a.id))
+            .map(a => {
+              const row = wellnessRows.find(r => r.activity_id === a.id);
+              const withW = row ? { ...a, status: row.status, freq: row.freq, streak: row.streak } : a;
+              return tips[a.id] ? { ...withW, tip: tips[a.id] } : withW;
+            });
+
+          // Build hydrated custom list (apply custom tips)
+          const custom = defs.map(def => {
+            const t   = COLOR_THEMES.find(c => c.key === def.colorKey) || COLOR_THEMES[0];
+            const row = wellnessRows.find(r => r.activity_id === def.id);
+            const withW = {
+              ...def,
+              bg: t.bg, iconBg: t.iconBg, iconCls: t.iconCls, border: t.border,
+              status: row?.status ?? 'notplanned',
+              freq:   row?.freq   ?? 'Daily',
+              streak: row?.streak ?? 0,
+            };
+            return tips[def.id] ? { ...withW, tip: tips[def.id] } : withW;
+          });
+
+          setActivities([...builtIn, ...custom]);
+          setCustomDefs(defs);
+          setHiddenActs(hidden);
+          setCustomTips(tips);
+          if (result?.levelIdx != null) setLevelIdx(result.levelIdx);
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
       }, []);
 
       const handleSelectActivity = useCallback((act) => {
@@ -647,6 +1096,49 @@
         });
         setSelected(prev => prev?.id === id ? { ...prev, ...changes } : prev);
       }, []);
+
+      const handleAddActivity = useCallback(async (actDef) => {
+        // Apply any existing custom tip override before adding
+        const withTip = customTips[actDef.id] ? { ...actDef, tip: customTips[actDef.id] } : actDef;
+        setActivities(prev => [...prev, withTip]);
+        // Save definition (strip runtime state before persisting)
+        const { status, freq, streak, bg, iconBg, iconCls, border, ...def } = actDef;
+        const newDefs = [...customDefs, def];
+        setCustomDefs(newDefs);
+        await sbSaveCustomActs(newDefs).catch(console.error);
+        // Init wellness row
+        sbSaveActivity(actDef.id, actDef.status, actDef.freq, actDef.streak).catch(console.error);
+      }, [customDefs]);
+
+      /* Unified remove — hides built-ins per-member, fully deletes custom */
+      const handleRemoveActivity = useCallback(async (id) => {
+        const act = activities.find(a => a.id === id);
+        setActivities(prev => prev.filter(a => a.id !== id));
+        if (selected?.id === id) { setSelected(null); setPage('home'); }
+
+        if (act?.isCustom) {
+          const newDefs = customDefs.filter(d => d.id !== id);
+          setCustomDefs(newDefs);
+          await sbSaveCustomActs(newDefs).catch(console.error);
+          if (sb && MEMBER_ID) {
+            sb.from('allusbasecamp_wellness').delete()
+              .eq('member_id', MEMBER_ID).eq('activity_id', id).catch(console.error);
+          }
+        } else {
+          const newHidden = [...hiddenActs, id];
+          setHiddenActs(newHidden);
+          await sbSaveHiddenActs(newHidden).catch(console.error);
+        }
+      }, [activities, hiddenActs, customDefs, selected]);
+
+      /* Save an edited "Why it matters" tip for any activity */
+      const handleUpdateTip = useCallback(async (id, tip) => {
+        setActivities(prev => prev.map(a => a.id === id ? { ...a, tip } : a));
+        setSelected(prev => prev?.id === id ? { ...prev, tip } : prev);
+        const newTips = { ...customTips, [id]: tip };
+        setCustomTips(newTips);
+        await sbSaveCustomTips(newTips).catch(console.error);
+      }, [customTips]);
 
       const handleLevelChange = useCallback((idx) => {
         setLevelIdx(idx);
@@ -675,10 +1167,29 @@
               onSelectActivity={handleSelectActivity}
               levelIdx={levelIdx}
               onLevelChange={handleLevelChange}
+              onOpenAddSheet={() => setShowAddSheet(true)}
             />
           )}
           {page === 'detail' && selected && (
-            <DetailScreen activity={selected} onBack={handleBack} onUpdate={handleUpdateActivity} />
+            <DetailScreen
+              activity={selected}
+              onBack={handleBack}
+              onUpdate={handleUpdateActivity}
+              onRemove={handleRemoveActivity}
+              onUpdateTip={handleUpdateTip}
+            />
+          )}
+
+          {/* AddActivitySheet lives here — direct child of phone-frame, not nested
+              inside any overflow:hidden subtree, so its own scroll works correctly */}
+          {showAddSheet && (
+            <AddActivitySheet
+              onClose={() => setShowAddSheet(false)}
+              onSave={async (actDef) => {
+                await handleAddActivity(actDef);
+                setShowAddSheet(false);
+              }}
+            />
           )}
         </div>
       );

@@ -76,13 +76,43 @@ CREATE TABLE IF NOT EXISTS allusbasecamp_wellness_level (
 );
 
 
--- ── 7. Row Level Security (permissive — family app, no auth) ───
+-- ── 7. Custom activities created by the family ─────────────────
+CREATE TABLE IF NOT EXISTS allusbasecamp_custom_activities (
+  id         UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  name       TEXT        NOT NULL,
+  emoji      TEXT        NOT NULL DEFAULT '✨',
+  gradient   TEXT        NOT NULL DEFAULT 'linear-gradient(135deg,#7c3aed,#a855f7)',
+  pin_color  TEXT        NOT NULL DEFAULT '#6366f1',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- ── 8. Map pins — family activity locations with date labels ───
+CREATE TABLE IF NOT EXISTS allusbasecamp_map_pins (
+  id         UUID             DEFAULT gen_random_uuid() PRIMARY KEY,
+  type       TEXT             NOT NULL
+               CHECK (type IN ('vacation', 'event', 'dine')),
+  lat        DOUBLE PRECISION NOT NULL,
+  lng        DOUBLE PRECISION NOT NULL,
+  label      TEXT             NOT NULL DEFAULT '',
+  month_year TEXT             NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ      DEFAULT now()
+);
+
+
+-- ── 8. Row Level Security (permissive — family app, no auth) ───
 ALTER TABLE allusbasecamp_settings          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_members           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_common_plans      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_personal_plans    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_wellness          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_wellness_level    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE allusbasecamp_custom_activities  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE allusbasecamp_map_pins          ENABLE ROW LEVEL SECURITY;
+
+-- Allow custom activity UUIDs as the type value (removes the vacation/event/dine-only restriction)
+ALTER TABLE allusbasecamp_map_pins
+  DROP CONSTRAINT IF EXISTS allusbasecamp_map_pins_type_check;
 
 -- Allow the anon key full access (no authentication required)
 DO $$
@@ -132,6 +162,22 @@ BEGIN
     WHERE tablename = 'allusbasecamp_wellness_level' AND policyname = 'anon_all'
   ) THEN
     CREATE POLICY anon_all ON allusbasecamp_wellness_level
+      FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'allusbasecamp_map_pins' AND policyname = 'anon_all'
+  ) THEN
+    CREATE POLICY anon_all ON allusbasecamp_map_pins
+      FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'allusbasecamp_custom_activities' AND policyname = 'anon_all'
+  ) THEN
+    CREATE POLICY anon_all ON allusbasecamp_custom_activities
       FOR ALL TO anon USING (true) WITH CHECK (true);
   END IF;
 END;
