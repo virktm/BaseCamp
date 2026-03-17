@@ -11,9 +11,10 @@ Fits any phone screen. Runs offline-ready. Backed by Supabase.
 |-------|-----------|
 | Markup | HTML5 |
 | Style | Tailwind CSS CDN + custom `style.css` |
-| Logic | Vanilla JS + React 18 (Babel standalone, no bundler) |
+| Logic | Vanilla JS (`app.js`, retained) + React 18 (Babel standalone, no bundler) |
 | Data | Supabase (Postgres + Storage) |
 | PWA | `manifest.json` + `viewport-fit=cover` |
+| Deployment | Vercel (static, zero build) |
 
 ---
 
@@ -21,13 +22,20 @@ Fits any phone screen. Runs offline-ready. Backed by Supabase.
 
 | File | Purpose |
 |------|---------|
-| `index.html` | AllUsBasecamp home — all 5 screens + modal in one file |
-| `style.css` | `100dvh`, safe-area insets, transitions, components |
-| `App.jsx` | All Supabase calls, navigation, render functions |
-| `supabase-config.js` | **Edit this** — paste your URL + anon key |
-| `setup.sql` | Run once in Supabase SQL Editor to create all tables |
-| `manifest.json` | PWA install manifest |
-| `wellness-tracker.html` | Per-member wellness/habit tracker screen |
+| `index.html` | PWA entry point — loads all scripts in order, mounts React root |
+| `App.jsx` | Active React SPA — all screens, Supabase helpers, state, navigation |
+| `app.js` | Original vanilla-JS implementation (retained for reference) |
+| `style.css` | `100dvh`, safe-area insets, transitions, phone-frame, all component styles |
+| `wellness-tracker.html` | Self-contained React mini-app for per-member habit tracking |
+| `supabase-config.js` | **Edit this** — paste your URL + anon key, exposes `window.sb` |
+| `setup.sql` | Run once in Supabase SQL Editor to create all tables, RLS policies, and storage bucket |
+| `manifest.json` | PWA install manifest (name, icons, display mode, theme colour) |
+| `vercel.json` | Vercel static deployment config — disables build, sets MIME type headers |
+| `logo.svg` | Vector logo: cream "P" letterform + dark navy swoosh tail |
+| `icon-192.png` | PWA home-screen icon (192×192) |
+| `icon-512.png` | PWA home-screen icon (512×512, maskable for Android) |
+| `README.md` | Full project documentation (tech stack, DB schema, user guide, quick start) |
+| `AllUsBasecamp.md` | This file — concise internal design reference |
 
 ---
 
@@ -56,29 +64,53 @@ Open `http://localhost:8080` in a browser or Chrome DevTools → Device toolbar.
 
 **Install as PWA on iPhone:** Safari → Share → Add to Home Screen
 
+### 5. Deploy to Vercel
+1. Push to GitHub
+2. Import repo at [vercel.com/new](https://vercel.com/new) → Framework: **Other**, Build Command: *(blank)*, Output: `.`
+3. Deploy — `vercel.json` handles all static serving configuration
+
 ---
 
 ## Supabase Tables
 
-All tables are prefixed `allusbasecamp_` as required.
+All tables are prefixed `allusbasecamp_`.
 
 ### `allusbasecamp_settings`
+Generic key-value store — app-wide and per-member configuration.
+
 | Column | Type | Notes |
 |--------|------|-------|
-| key | TEXT PK | `'tagline'` stores the editable headline |
-| value | TEXT | The setting value |
+| key | TEXT PK | Namespaced key |
+| value | TEXT | Plain text or JSON string |
 | updated_at | TIMESTAMPTZ | Auto-set |
 
+**Keys in use:**
+
+| Key | Value format | Purpose |
+|-----|-------------|---------|
+| `tagline` | Plain text | Editable welcome screen headline |
+| `wt_custom_acts_{member_id}` | JSON array | Custom wellness activity definitions per member |
+| `wt_hidden_acts_{member_id}` | JSON array of strings | Built-in activity IDs removed from a member's list |
+| `wt_tips_{member_id}` | JSON object `{id: tip}` | Custom "Why it matters" text overrides per member |
+
+---
+
 ### `allusbasecamp_members`
+Up to 7 family members, one per position slot (0–6).
+
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID PK | Auto-generated |
 | name | TEXT | Display name |
-| avatar_url | TEXT | Public URL from Storage |
+| avatar_url | TEXT | Public Storage URL, or `emoji:🐱` prefix for emoji avatars |
 | position | INT | 0–6 (slot in grid), UNIQUE |
 | created_at | TIMESTAMPTZ | Auto-set |
 
+---
+
 ### `allusbasecamp_common_plans`
+Shared family plans.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID PK | Auto-generated |
@@ -86,7 +118,11 @@ All tables are prefixed `allusbasecamp_` as required.
 | content | TEXT | Plan entry text |
 | created_at | TIMESTAMPTZ | Auto-set |
 
+---
+
 ### `allusbasecamp_personal_plans`
+Per-member private plans.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID PK | Auto-generated |
@@ -95,19 +131,27 @@ All tables are prefixed `allusbasecamp_` as required.
 | content | TEXT | Plan entry text |
 | created_at | TIMESTAMPTZ | Auto-set |
 
+---
+
 ### `allusbasecamp_wellness`
+Per-member activity tracking state.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID PK | Auto-generated |
 | member_id | UUID FK | → `allusbasecamp_members.id` (CASCADE delete) |
-| activity_id | TEXT | `healthy` \| `walk` \| `swim` \| `cycle` \| `badminton` \| `read` |
+| activity_id | TEXT | Built-in e.g. `walk`, or custom e.g. `custom_1710000000_abc12` |
 | status | TEXT | `ongoing` \| `notplanned` |
 | freq | TEXT | `Daily` \| `Weekdays` \| `3×/week` \| `Weekly` \| `Monthly` |
 | streak | INT | Day streak count (0 = reset) |
 | updated_at | TIMESTAMPTZ | Auto-set on every save |
 | *(unique)* | | `(member_id, activity_id)` — one row per member per habit |
 
+---
+
 ### `allusbasecamp_wellness_level`
+Self-selected experience level per member.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | member_id | UUID PK | → `allusbasecamp_members.id` (CASCADE delete) |
@@ -116,107 +160,152 @@ All tables are prefixed `allusbasecamp_` as required.
 
 ---
 
+### `allusbasecamp_custom_activities`
+Family-shared custom activity types shown on the Memories map.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | Auto-generated; also used as `type` in `allusbasecamp_map_pins` |
+| name | TEXT | Display name e.g. "Board Game Night" |
+| emoji | TEXT | Emoji icon |
+| gradient | TEXT | CSS gradient string for tile background |
+| pin_color | TEXT | Hex colour for the Leaflet map pin |
+| created_at | TIMESTAMPTZ | Auto-set |
+
+---
+
+### `allusbasecamp_map_pins`
+Location pins dropped on the Memories map.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | Auto-generated |
+| type | TEXT | `vacation` \| `event` \| `dine` or a custom activity UUID |
+| lat / lng | DOUBLE PRECISION | Geographic coordinates |
+| label | TEXT | Place name or description |
+| month_year | TEXT | `YYYY-MM` e.g. `2026-03` — displayed on the pin |
+| created_at | TIMESTAMPTZ | Auto-set |
+
+---
+
 ## Supabase Storage
 
 - **Bucket:** `member-avatars` (public)
-- **Path pattern:** `slot-{0–6}/avatar.{ext}`
-- Upload uses `upsert: true` — new photo overwrites old for same slot
+- **Path — main app:** `slot-{0–6}/avatar.{ext}` (keyed by position slot)
+- **Path — wellness tracker:** `members/{member_id}/avatar.{ext}` (keyed by UUID)
+- Upload uses `upsert: true` — new photo overwrites old for same path
 - Cache-buster appended to URL after upload (`?t=timestamp`)
-- Deleting a member removes all `slot-{n}/avatar.*` paths
+- Deleting a member removes all related avatar paths
 
 ---
 
 ## Navigation Flow
 
 ```
-index.html (AllUsBasecamp Home)
+index.html  (React SPA — App.jsx)
   │
-  ├── Tap empty avatar slot  →  Add Member modal
-  ├── Tap filled avatar slot →  wellness-tracker.html?  (sessionStorage: wt_member_id, wt_name, wt_avatar)
-  └── Family Basecamp button →  Common Area screen
-        └── Select tile + Continue  →  Plan screen
+  ├── WelcomeScreen
+  │     ├── Tap empty slot     →  MemberModal (add member)
+  │     ├── Tap filled avatar  →  MemberAreaScreen
+  │     │     ├── Plan tile    →  PlanScreen (meals / exercise / book)
+  │     │     └── Wellness Tracker button
+  │     │           └── window.location → wellness-tracker.html
+  │     │                 (sessionStorage: wt_member_id, wt_name, wt_avatar)
+  │     └── Family Basecamp   →  CommonAreaScreen
+  │           ├── Plan tile    →  PlanScreen (vacation / event / dine)
+  │           └── Memories     →  MemoriesScreen (Leaflet map)
+  │
+  └── wellness-tracker.html  (separate React app)
+        ├── HomeScreen (activity grid)
+        │     ├── Tap activity tile  →  DetailScreen
+        │     ├── Tap Add New tile   →  AddActivitySheet (overlay)
+        │     └── Tap avatar         →  AvatarSheet (overlay)
+        └── DetailScreen
+              ├── Status / Freq / Streak controls
+              ├── Edit "Why it matters"
+              └── Remove / Delete activity
 ```
 
 ---
 
-## Screens — index.html
+## Screens
 
-### Welcome Screen (`screen-welcome`)
+### Welcome Screen
 - **Editable tagline** — tap to edit inline; saves to `allusbasecamp_settings`
-- **7 circular avatar slots** — tap empty = add modal; tap filled = opens Wellness Tracker
+- **7 circular avatar slots** — empty = add modal; filled = opens Member Area
 - **Family Basecamp button** — opens Common Area
 
-### Common Area (`screen-common`)
-Three tiles → each opens the Plan screen for that type:
-- ✈️ Plan Vacation → `type = 'vacation'`
-- 🎉 Go to an Event → `type = 'event'`
-- 🍽️ Dine Out → `type = 'dine'`
+### Member Area Screen
+- Hero header: member avatar + name
+- 3 personal plan tiles: 🥗 Plan Meals · 🏃 Exercise · 📖 Read Book
+- **Wellness Tracker** button → navigates to `wellness-tracker.html`
 
-### Plan Screen (`screen-plan`)
-- Scrollable list of plan entries from Supabase
-- Add entry (optimistic insert, rolls back on error)
-- Delete per entry (immediate DOM remove, then Supabase delete)
+### Common Area Screen
+- 3 shared plan tiles: ✈️ Plan Vacation · 🎉 Go to an Event · 🍽️ Dine Out
+- **Memories** button → opens Leaflet map
+- Filter carousel: All / Vacation / Events / Dining Out / custom activities (swipeable, fading right edge, deep-navy active chip)
 
-### Add/Edit Member Modal
-- Bottom sheet with slide-up animation
-- Photo picker → uploads to `member-avatars` bucket
-- Name input (max 20 chars)
-- Edit mode shows **Remove Member** button
+### Plan Screen
+- Scrollable list of entries with timestamps
+- Add entry (optimistic insert, rolls back on Supabase error)
+- Delete per entry (immediate DOM remove, async Supabase delete)
+
+### Memories Screen (Leaflet map)
+- Full-screen interactive map
+- Filter carousel to show/hide pins by activity type
+- Tap map → AddPinModal (label + month/year)
+- Custom SVG pin shapes: teardrop (vacation), star (event), pawn (dine), badge (custom)
+- **+ Activity** → AddCustomActivityModal (name, emoji, gradient)
 
 ---
 
-## Wellness Tracker (`wellness-tracker.html`)
+## Wellness Tracker Screens
 
-Standalone screen opened when a family member avatar is tapped.
-Member identity is passed via `sessionStorage` (no URL params).
+### Home Screen (Activity Grid)
+- **Profile row:** tappable avatar (opens AvatarSheet) · name · level badge (opens picker) · XP bar
+- **Filter tabs:** All / Ongoing / Not Planned
+- **2-column activity grid** — each tile shows icon, name, status badge, 🔥 streak
+- **"Add New" tile** (dashed border) → opens AddActivitySheet at App level
 
-### Data flow
-1. `App.jsx` writes `wt_member_id`, `wt_name`, `wt_avatar` to `sessionStorage`
-2. Browser navigates to `wellness-tracker.html`
-3. On load, fetches `allusbasecamp_wellness` + `allusbasecamp_wellness_level` for that member
-4. Every change (status, frequency, streak, level) is upserted to Supabase in real time
-5. All family members viewing the same member's tracker see live-updated data
+### Detail Screen
+- Hero card with large icon
+- Status toggle: ✅ Ongoing / ⏸ Not Planned
+- Frequency picker: Daily / Weekdays / 3×/week / Weekly / Monthly
+- Day Streak: M (month) / W (week) / D (day) badge row + **🎯 Mission Accomplished** / **↺ Reset**
+- **Why it matters** — pencil icon → inline textarea → Save / Cancel (persisted per member)
+- **Remove button** — built-ins: "✕ Remove from My List" (hides per-member); custom: "🗑 Delete Activity" (fully removes)
 
-### Habits tracked
-| ID | Label | Default status |
-|----|-------|---------------|
-| `healthy` | Eat Healthy | Ongoing |
-| `walk` | Go for a Walk | Not Planned |
-| `swim` | Swim | Not Planned |
-| `cycle` | Cycle | Ongoing |
-| `badminton` | Badminton | Not Planned |
-| `read` | Read Book | Not Planned |
+### Add Activity Sheet (bottom sheet)
+- Live preview tile updates as you type
+- Fields: Activity Name · Category · Why it matters
+- Icon picker: 36 emoji
+- Colour picker: 8 themes (Violet, Green, Blue, Orange, Pink, Cyan, Amber, Rose)
+- **＋ Create Activity** saves definition + initial wellness row to Supabase
 
-### Features per habit (detail screen)
-- **Status toggle** — Ongoing / Not Planned (saved to Supabase)
-- **Frequency picker** — Daily, Weekdays, 3×/week, Weekly, Monthly
-- **Day Streak** — shows count + badge row (D / W / M)
-- **🎯 Mission Accomplished** button — increments streak by 1
-- **↺ Reset** — resets streak to 0 (visible only when streak > 0)
+### Avatar Sheet (bottom sheet)
+- **📷 Upload Photo** → device file picker → uploads to `member-avatars` bucket
+- **Emoji grid** — 25 options; saves `emoji:🐱` string as `avatar_url`
 
-### Streak badge logic
-| Streak | Display |
-|--------|---------|
-| 1–6 | `D D D …` gray pills |
-| 7 | `W` violet pill |
-| 8–13 | `W D …` |
-| 14 | `W W` |
-| 30 | `M` rose pill |
-| 31+ | `M` + remaining W/D |
+---
 
-### Level selector
-Tappable badge on the profile row — cycles through:
-- **Beginner** (violet) — 40% progress bar
-- **Intermediate** (amber) — 65% progress bar
-- **Advanced** (rose) — 100% progress bar
+## Wellness Tracker — Per-Member Customisation
 
-Saved to `allusbasecamp_wellness_level` per member.
+All customisations are stored in `allusbasecamp_settings` using namespaced keys. No schema changes needed.
+
+| Feature | Storage key | Format |
+|---------|------------|--------|
+| Custom activities | `wt_custom_acts_{id}` | JSON array of activity definition objects |
+| Hidden built-ins | `wt_hidden_acts_{id}` | JSON array of activity ID strings |
+| Custom tips | `wt_tips_{id}` | JSON object `{ activityId: "tip text" }` |
+
+Boot load uses a single `Promise.all` across 4 Supabase reads before first render.
 
 ---
 
 ## Design Tokens
 
 ```css
+/* Main app — cream & forest */
 --cream:        #FDFBF7   /* page background */
 --cream-dark:   #F0EBE1   /* input backgrounds */
 --cream-border: #E4D9C8   /* subtle borders */
@@ -224,7 +313,8 @@ Saved to `allusbasecamp_wellness_level` per member.
 --forest-light: #2D7A2D   /* back buttons */
 ```
 
-Wellness tracker palette: violet primary, pastel tile backgrounds per habit.
+Wellness tracker palette: violet primary (`#7C3AED`), pastel tile backgrounds per habit.
+Filter carousel active chip: deep navy `#1e3a8a`.
 
 ---
 
@@ -235,8 +325,12 @@ Wellness tracker palette: violet primary, pastel tile backgrounds per habit.
 | Viewport height | `height: 100dvh` — shrinks when browser chrome appears |
 | Notch / home bar | `env(safe-area-inset-*)` CSS variables on every screen |
 | Full-screen PWA | `viewport-fit=cover` + `apple-mobile-web-app-capable` |
-| No iOS input zoom | `font-size: max(16px, ...)` on all inputs |
+| No iOS input zoom | `font-size: max(16px, ...)` on all inputs and textareas |
 | No rubber-band | `overscroll-behavior: none` |
 | Touch targets | `min-height: 44–52px` on all interactive elements |
 | Scrollbar hidden | `scrollbar-width: none` + `::-webkit-scrollbar { display: none }` |
-| Desktop preview | Phone frame (390×844 px) centered on dark backdrop via CSS `transform` |
+| Desktop preview | Phone frame (390×844 px) centred on dark backdrop via CSS `transform` |
+| Bottom sheet overlays | `position: absolute` inside phone-frame (not `fixed`) — avoids CSS `transform` containment clipping bug |
+
+### CSS containment note
+`.phone-frame` uses `transform: translate(-50%,-50%)` + `overflow: hidden`. This creates a new containing block for positioned children. Bottom sheets (`AddActivitySheet`, `AvatarSheet`) must be **direct children of `.phone-frame`** and use `position: absolute` — not `position: fixed` — otherwise they are clipped and cannot scroll.
