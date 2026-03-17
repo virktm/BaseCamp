@@ -1,13 +1,31 @@
 {
-  "cleanUrls": true,
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "framework": null,
+  "cleanUrls": false,
   "headers": [
     {
-      "source": "/(.*).jsx",
+      "source": "/(.*)\\.jsx",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/javascript"
-        }
+        { "key": "Content-Type", "value": "text/javascript" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.js",
+      "headers": [
+        { "key": "Content-Type", "value": "text/javascript" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.css",
+      "headers": [
+        { "key": "Content-Type", "value": "text/css" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.svg",
+      "headers": [
+        { "key": "Content-Type", "value": "image/svg+xml" }
       ]
     }
   ]
