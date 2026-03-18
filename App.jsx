@@ -84,7 +84,7 @@ async function sbLoadMembers() {
   return arr;
 }
 
-async function sbSaveMember(slot, name, file, existingAvatarUrl) {
+async function sbSaveMember(slot, name, file, existingAvatarUrl, email) {
   let avatar_url = existingAvatarUrl || null;
 
   if (file) {
@@ -102,9 +102,12 @@ async function sbSaveMember(slot, name, file, existingAvatarUrl) {
     }
   }
 
+  const row = { name, avatar_url, position: slot };
+  if (email) row.email = email;
+
   const { data, error } = await window.sb
     .from('allusbasecamp_members')
-    .upsert({ name, avatar_url, position: slot }, { onConflict: 'position' })
+    .upsert(row, { onConflict: 'position' })
     .select()
     .single();
   if (error) throw error;
@@ -116,6 +119,14 @@ async function sbDeleteMember(slot, memberId) {
   await window.sb.storage.from('member-avatars').remove(exts.map(e => `slot-${slot}/avatar.${e}`));
   const { error } = await window.sb.from('allusbasecamp_members').delete().eq('id', memberId);
   if (error) throw error;
+}
+
+
+// SHA-256 hash of (pin + memberId) — one-way, never stores the raw PIN
+async function hashPin(pin, memberId) {
+  const raw  = new TextEncoder().encode(pin + memberId);
+  const buf  = await crypto.subtle.digest('SHA-256', raw);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function sbLoadPlans(type, memberId) {
@@ -362,13 +373,26 @@ function ActivityTile({ type, icon, label, color, selected, onSelect }) {
 // ════════════════════════════════════════════════════════════════
 // AVATAR SLOT
 // ════════════════════════════════════════════════════════════════
-function AvatarSlot({ member, slot, onFilled, onEmpty }) {
+function AvatarSlot({ member, slot, onFilled, onEmpty, editMode, onRemove, onLongPress }) {
   const fallback = useMemo(
     () => member ? defaultAvatar(member.name) : null,
     [member?.name]
   );
+  const longPressTimer = useRef(null);
+
+  function startPress() {
+    if (!member) return;
+    longPressTimer.current = setTimeout(() => {
+      onLongPress && onLongPress();
+    }, 500);
+  }
+
+  function cancelPress() {
+    clearTimeout(longPressTimer.current);
+  }
 
   function handleClick() {
+    if (editMode) return; // taps disabled in edit mode
     member ? onFilled(slot) : onEmpty(slot);
   }
 
@@ -382,10 +406,39 @@ function AvatarSlot({ member, slot, onFilled, onEmpty }) {
   }
 
   return (
-    <div className="member-slot" onClick={handleClick}>
-      <div className={`avatar-circle${member ? ' filled' : ' empty'}`}>
+    <div
+      className="member-slot"
+      onClick={handleClick}
+      onMouseDown={startPress}
+      onMouseUp={cancelPress}
+      onMouseLeave={cancelPress}
+      onTouchStart={startPress}
+      onTouchEnd={cancelPress}
+      onTouchCancel={cancelPress}
+      style={{ position: 'relative' }}>
+      <div
+        className={`avatar-circle${member ? ' filled' : ' empty'}${editMode && member ? ' avatar-wiggle' : ''}`}
+        style={editMode && member ? { opacity: 0.85 } : {}}>
         {renderInner()}
       </div>
+      {/* Remove badge — visible only in edit mode on filled slots */}
+      {editMode && member && (
+        <button
+          onClick={e => { e.stopPropagation(); onRemove(slot, member); }}
+          aria-label={`Remove ${member.name}`}
+          style={{
+            position: 'absolute', top: 0, right: 0,
+            width: 22, height: 22, borderRadius: '50%',
+            background: '#dc2626', border: '2px solid #fff',
+            color: '#fff', fontSize: '12px', fontWeight: 700,
+            lineHeight: 1, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 10, padding: 0,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+          }}>
+          ✕
+        </button>
+      )}
       <span className="avatar-name" style={!member ? { color: 'rgba(26,83,26,0.3)' } : {}}>
         {member ? member.name : 'Add'}
       </span>
@@ -480,6 +533,7 @@ function LoadingScreen() {
 // ════════════════════════════════════════════════════════════════
 function MemberModal({ slot, member, onSave, onDelete, onClose }) {
   const [name,       setName]       = useState(member?.name || '');
+  const [email,      setEmail]      = useState(member?.email || '');
   const [previewUrl, setPreviewUrl] = useState(member?.avatar_url || null);
   const [pendingFile,setPendingFile] = useState(null);
   const [saving,     setSaving]     = useState(false);
@@ -500,7 +554,7 @@ function MemberModal({ slot, member, onSave, onDelete, onClose }) {
     if (!name.trim()) { fileRef.current?.focus(); return; }
     setSaving(true);
     try {
-      await onSave(slot, name.trim(), pendingFile, member?.avatar_url);
+      await onSave(slot, name.trim(), pendingFile, member?.avatar_url, email.trim().toLowerCase() || null);
     } finally {
       setSaving(false);
     }
@@ -545,6 +599,17 @@ function MemberModal({ slot, member, onSave, onDelete, onClose }) {
           className="modal-name-input"
           style={{ fontSize: 'max(16px, 1rem)' }}
           autoComplete="off"
+        />
+
+        {/* Email input */}
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="Email (optional)"
+          className="modal-name-input"
+          style={{ fontSize: 'max(16px, 1rem)', marginTop: 10 }}
+          autoComplete="email"
         />
 
         <button
@@ -1087,8 +1152,8 @@ function MemoriesMapView({ pins, allActivitiesMeta }) {
 // ════════════════════════════════════════════════════════════════
 // COMMON AREA SCREEN  (modern card tiles)
 // ════════════════════════════════════════════════════════════════
-function CommonAreaScreen({ onBack, onSelectTile, customActivities, onCreateActivity, mapPins, allActivitiesMeta, onDeletePin }) {
-  const [activeTab, setActiveTab] = useState('plan');    // 'plan' | 'memories'
+function CommonAreaScreen({ onBack, onSelectTile, customActivities, onCreateActivity, mapPins, allActivitiesMeta, onDeletePin, defaultTab }) {
+  const [activeTab, setActiveTab] = useState(defaultTab || 'plan');    // 'plan' | 'memories'
   const [memView,   setMemView]   = useState('list');    // 'list' | 'map'
   const [filter,    setFilter]    = useState('all');     // 'all' | activityType key
 
@@ -1373,11 +1438,320 @@ function MemberAreaScreen({ member, onBack, onContinue }) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// AUTH MODAL — bottom sheet triggered by the user icon
+// Returning user (email saved in localStorage): password only
+// New user: email + password  →  signUp (auto sign-in if already exists)
+// ════════════════════════════════════════════════════════════════
+const AUTH_EMAIL_KEY = 'abc_user_email';
+
+function AuthModal({ onClose, onAuth }) {
+  const stored      = localStorage.getItem(AUTH_EMAIL_KEY) || '';
+  const [mode,      setMode]     = useState(stored ? 'returning' : 'new');
+  const [email,     setEmail]    = useState(stored);
+  const [password,  setPassword] = useState('');
+  const [loading,   setLoading]  = useState(false);
+  const [error,     setError]    = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const addr = email.trim().toLowerCase();
+    if (!addr || !password) return;
+    setLoading(true); setError('');
+
+    if (mode === 'returning') {
+      // Existing device — sign in directly
+      const { data, error: err } = await window.sb.auth.signInWithPassword({ email: addr, password });
+      setLoading(false);
+      if (err) { setError('Incorrect password. Try again.'); return; }
+      localStorage.setItem(AUTH_EMAIL_KEY, addr);
+      onAuth(data.user); onClose();
+
+    } else {
+      // New device / new user — try sign up first
+      const { data: sd, error: se } = await window.sb.auth.signUp({ email: addr, password });
+
+      if (se && /already registered/i.test(se.message)) {
+        // Account exists — sign in with these credentials
+        const { data, error: ie } = await window.sb.auth.signInWithPassword({ email: addr, password });
+        setLoading(false);
+        if (ie) { setError('Wrong password for this account.'); return; }
+        localStorage.setItem(AUTH_EMAIL_KEY, addr);
+        onAuth(data.user); onClose();
+
+      } else if (se) {
+        setLoading(false);
+        setError(se.message);
+
+      } else if (sd.session) {
+        // Signed up, session created immediately (email confirm disabled)
+        setLoading(false);
+        localStorage.setItem(AUTH_EMAIL_KEY, addr);
+        onAuth(sd.user); onClose();
+
+      } else {
+        // Email confirmation required — guide user
+        setLoading(false);
+        setError('Almost there! Check your email to confirm your account, then sign in again.');
+      }
+    }
+  }
+
+  function switchAccount() {
+    localStorage.removeItem(AUTH_EMAIL_KEY);
+    setEmail(''); setPassword(''); setError('');
+    setMode('new');
+  }
+
+  const S = {
+    overlay: { position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' },
+    sheet:   { width: '100%', maxWidth: 390, background: '#FDFBF7', borderRadius: '24px 24px 0 0', padding: '24px 24px 52px', boxSizing: 'border-box' },
+    drag:    { width: 40, height: 4, borderRadius: 9, background: '#E4D9C8', margin: '0 auto 22px' },
+    title:   { fontSize: '1.2rem', fontWeight: 800, color: '#1A531A', marginBottom: 5 },
+    sub:     { fontSize: '0.82rem', color: '#6b7280', marginBottom: 18, lineHeight: 1.5 },
+    inp:     { display: 'block', width: '100%', boxSizing: 'border-box', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #E4D9C8', background: '#F0EBE1', fontSize: '1rem', color: '#1A531A', outline: 'none', fontFamily: 'inherit', marginBottom: 10 },
+    btn:     (off) => ({ width: '100%', marginTop: 4, padding: '13px 0', borderRadius: 12, border: 'none', cursor: off ? 'not-allowed' : 'pointer', background: off ? '#e5e7eb' : 'linear-gradient(135deg,#2D7A2D,#1A531A)', color: off ? '#9ca3af' : '#fff', fontSize: '0.95rem', fontWeight: 700, fontFamily: 'inherit' }),
+    err:     { color: '#dc2626', fontSize: '0.78rem', marginTop: 2, marginBottom: 6 },
+    ghost:   { background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0 },
+  };
+
+  const ready = mode === 'returning' ? !!password : (!!email.trim() && !!password);
+
+  return (
+    <div style={S.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={S.sheet}>
+        <div style={S.drag} />
+
+        {mode === 'returning' ? (
+          <form onSubmit={handleSubmit}>
+            <p style={S.title}>Welcome back 👋</p>
+            <p style={S.sub}>
+              Signing in as <strong style={{ color: '#1A531A' }}>{email}</strong>
+            </p>
+            <input
+              type="password" required autoFocus
+              placeholder="Your password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              style={S.inp}
+              autoComplete="current-password"
+            />
+            {error && <p style={S.err}>{error}</p>}
+            <button type="submit" disabled={loading || !ready} style={S.btn(loading || !ready)}>
+              {loading ? 'Signing in…' : 'Sign In →'}
+            </button>
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <button type="button" onClick={switchAccount}
+                      style={{ ...S.ghost, color: '#6b7280', fontSize: '0.78rem' }}>
+                Not you? Use a different account
+              </button>
+            </div>
+          </form>
+
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <p style={S.title}>Sign In</p>
+            <p style={S.sub}>First time here? We'll create your account automatically.</p>
+            <input
+              type="email" required autoFocus
+              placeholder="your@email.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              style={S.inp}
+              autoComplete="email"
+            />
+            <input
+              type="password" required
+              placeholder="Password (min 6 characters)"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              style={{ ...S.inp, marginBottom: 0 }}
+              autoComplete="new-password"
+            />
+            {error && <p style={S.err}>{error}</p>}
+            <button type="submit" disabled={loading || !ready} style={S.btn(loading || !ready)}>
+              {loading ? 'Please wait…' : 'Continue →'}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// MEMBER PIN MODAL
+// Full-screen — set PIN on first visit, enter PIN on return visits
+// PIN stored in allusbasecamp_settings as member_pin_{id}
+// ════════════════════════════════════════════════════════════════
+function MemberPinModal({ member, hasPin, onVerified, onCancel }) {
+  // mode: 'set' → 'confirm' → done, or 'enter' → done
+  const [mode,    setMode]    = useState(hasPin ? 'enter' : 'set');
+  const [digits,  setDigits]  = useState('');   // current input
+  const firstPin  = useRef('');                 // holds original PIN while confirming
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+  const hiddenRef = useRef(null);
+
+  // Focus the hidden input whenever the overlay is tapped
+  function focusHidden() { hiddenRef.current?.focus(); }
+
+  // Auto-focus on mount and on mode change
+  useEffect(() => {
+    setDigits(''); setError('');
+    setTimeout(() => hiddenRef.current?.focus(), 80);
+  }, [mode]);
+
+  async function handleComplete(value) {
+    if (mode === 'set') {
+      firstPin.current = value;
+      setMode('confirm');
+
+    } else if (mode === 'confirm') {
+      if (value !== firstPin.current) {
+        setError('PINs do not match. Try again.');
+        firstPin.current = '';
+        setMode('set');
+        return;
+      }
+      setLoading(true); setError('');
+      const hashed = await hashPin(firstPin.current, member.id);
+      const { error: err } = await window.sb
+        .from('allusbasecamp_settings')
+        .upsert({ key: `member_pin_${member.id}`, value: hashed, updated_at: new Date().toISOString() },
+                 { onConflict: 'key' });
+      setLoading(false);
+      if (err) { setError('Could not save PIN. Try again.'); setMode('set'); return; }
+      onVerified();
+
+    } else {
+      // enter mode
+      setLoading(true); setError('');
+      const [hashed, result] = await Promise.all([
+        hashPin(value, member.id),
+        window.sb.from('allusbasecamp_settings')
+          .select('value').eq('key', `member_pin_${member.id}`).maybeSingle(),
+      ]);
+      setLoading(false);
+      const { data, error: err } = result;
+      if (err || !data) { setError('Could not verify. Try again.'); setDigits(''); return; }
+      if (data.value === hashed) {
+        onVerified();
+      } else {
+        setError('Incorrect PIN. Try again.');
+        setDigits('');
+      }
+    }
+  }
+
+  function handleChange(e) {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+    setDigits(val);
+    setError('');
+    if (val.length === 4) handleComplete(val);
+  }
+
+  const avatarUrl = member.avatar_url;
+
+  const titles = {
+    set:     { heading: `Hi, ${member.name}!`, sub: 'Create a 4-digit PIN to protect your space.' },
+    confirm: { heading: 'Confirm your PIN',     sub: 'Enter the same 4 digits again.' },
+    enter:   { heading: `Hi, ${member.name}!`, sub: 'Enter your 4-digit PIN to continue.' },
+  };
+
+  const S = {
+    overlay: {
+      position: 'absolute', inset: 0, zIndex: 300,
+      background: '#FDFBF7',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      padding: '32px 28px',
+    },
+    avatarWrap: {
+      width: 72, height: 72, borderRadius: '50%',
+      background: 'linear-gradient(135deg,#e8f5e9,#c8e6c9)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '2rem', marginBottom: 16, overflow: 'hidden',
+      boxShadow: '0 4px 16px rgba(26,83,26,0.15)',
+    },
+    name:  { margin: '0 0 4px', fontSize: '1.3rem', fontWeight: 800, color: '#1A531A', textAlign: 'center' },
+    sub:   { margin: '0 0 28px', fontSize: '0.84rem', color: 'rgba(26,83,26,0.5)', textAlign: 'center', lineHeight: 1.5 },
+    dots:  { display: 'flex', gap: 16, marginBottom: 20 },
+    dot:   (filled) => ({
+      width: 18, height: 18, borderRadius: '50%',
+      background: filled ? '#1A531A' : 'none',
+      border: `2.5px solid ${filled ? '#1A531A' : '#C8D9C8'}`,
+      transition: 'background 0.15s, border-color 0.15s',
+    }),
+    err:    { color: '#dc2626', fontSize: '0.82rem', marginBottom: 14, textAlign: 'center' },
+    cancel: {
+      marginTop: 20, background: 'none', border: 'none', cursor: 'pointer',
+      color: 'rgba(26,83,26,0.4)', fontSize: '0.82rem', fontFamily: 'inherit',
+    },
+  };
+
+  return (
+    <div style={S.overlay} onClick={focusHidden}>
+
+      {/* Hidden input captures all keystrokes — reliable on all mobile keyboards */}
+      <input
+        ref={hiddenRef}
+        type="tel"
+        inputMode="numeric"
+        value={digits}
+        onChange={handleChange}
+        disabled={loading}
+        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 1, height: 1 }}
+      />
+
+      <div style={S.avatarWrap}>
+        {avatarUrl && avatarUrl.startsWith('emoji:')
+          ? <span>{avatarUrl.slice(6)}</span>
+          : avatarUrl
+            ? <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <span>👤</span>
+        }
+      </div>
+
+      <p style={S.name}>{titles[mode].heading}</p>
+      <p style={S.sub}>{titles[mode].sub}</p>
+
+      {/* 4 dot indicators */}
+      <div style={S.dots}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} style={S.dot(i < digits.length)} />
+        ))}
+      </div>
+
+      {error && <p style={S.err}>{error}</p>}
+      {loading && <p style={{ color: '#1A531A', fontSize: '0.85rem', marginBottom: 8 }}>Please wait…</p>}
+
+      <button style={S.cancel} onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
 // WELCOME SCREEN
 // ════════════════════════════════════════════════════════════════
-function WelcomeScreen({ members, tagline, onTaglineSave, onMemberSlotClick, onCommonArea }) {
+function WelcomeScreen({ members, tagline, onTaglineSave, onMemberSlotClick, onRemoveMember }) {
+  const [editMode,      setEditMode]      = useState(false);
+  const [showGateMsg,   setShowGateMsg]   = useState(false);
+  const [pendingRemove, setPendingRemove] = useState(null); // { slot, member, hasPin }
+
+  async function requestRemove(slot, member) {
+    const { data } = await window.sb
+      .from('allusbasecamp_settings')
+      .select('value').eq('key', `member_pin_${member.id}`).maybeSingle();
+    if (data?.value) {
+      setPendingRemove({ slot, member, hasPin: true });
+    } else {
+      // No PIN — remove immediately
+      onRemoveMember(slot, member.id);
+    }
+  }
+
   return (
-    <div className="screen">
+    <div className="screen" onClick={() => { if (editMode) setEditMode(false); }}>
 
       {/* Tagline */}
       <div className="tagline-area">
@@ -1386,7 +1760,25 @@ function WelcomeScreen({ members, tagline, onTaglineSave, onMemberSlotClick, onC
       </div>
 
       {/* Member grid — filled members + one add button */}
-      <div className="member-grid-wrap">
+      <div className="member-grid-wrap" onClick={e => e.stopPropagation()}>
+
+        {/* Done button — only visible in edit mode */}
+        {editMode && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6, padding: '0 2px' }}>
+            <button
+              onClick={() => setEditMode(false)}
+              style={{
+                background: '#1A531A', border: 'none', cursor: 'pointer',
+                padding: '6px 18px', borderRadius: 20,
+                fontSize: '0.82rem', fontWeight: 700,
+                color: '#fff', fontFamily: 'inherit',
+                boxShadow: '0 2px 8px rgba(26,83,26,0.25)',
+              }}>
+              Done
+            </button>
+          </div>
+        )}
+
         <div className="member-grid">
           {members
             .map((member, i) => ({ member, slot: i }))
@@ -1398,10 +1790,13 @@ function WelcomeScreen({ members, tagline, onTaglineSave, onMemberSlotClick, onC
                 member={member}
                 onFilled={s => onMemberSlotClick(s, true)}
                 onEmpty={s  => onMemberSlotClick(s, false)}
+                editMode={editMode}
+                onRemove={(s, m) => requestRemove(s, m)}
+                onLongPress={() => setEditMode(true)}
               />
             ))
           }
-          {members.findIndex(m => m === null) !== -1 && (
+          {!editMode && members.findIndex(m => m === null) !== -1 && (
             <AvatarSlot
               key="add"
               slot={members.findIndex(m => m === null)}
@@ -1415,7 +1810,7 @@ function WelcomeScreen({ members, tagline, onTaglineSave, onMemberSlotClick, onC
 
       {/* CTA */}
       <div className="cta-area">
-        <button className="cta-btn" onClick={onCommonArea}>
+        <button className="cta-btn" onClick={() => setShowGateMsg(true)}>
           🏠&nbsp;&nbsp;Family Basecamp
         </button>
         <div className="dots">
@@ -1427,6 +1822,60 @@ function WelcomeScreen({ members, tagline, onTaglineSave, onMemberSlotClick, onC
 
       {/* Brand logo — subtle, non-distracting watermark */}
       <img src="logo.svg" alt="" aria-hidden="true" className="brand-logo" />
+
+      {/* PIN confirmation before removing a member */}
+      {pendingRemove && (
+        <MemberPinModal
+          member={pendingRemove.member}
+          hasPin={true}
+          onVerified={() => {
+            onRemoveMember(pendingRemove.slot, pendingRemove.member.id);
+            setPendingRemove(null);
+            setEditMode(false);
+          }}
+          onCancel={() => setPendingRemove(null)}
+        />
+      )}
+
+      {/* Gate message popup */}
+      {showGateMsg && (
+        <div
+          onClick={() => setShowGateMsg(false)}
+          style={{
+            position: 'absolute', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '32px',
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#FDFBF7', borderRadius: 24,
+              padding: '32px 24px 28px',
+              textAlign: 'center',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              width: '100%',
+            }}>
+            <div style={{ fontSize: '2.8rem', marginBottom: 14 }}>🔒</div>
+            <p style={{ margin: '0 0 8px', fontSize: '1rem', fontWeight: 800, color: '#1A531A', lineHeight: 1.4 }}>
+              Access granted only after<br />clicking your avatar.
+            </p>
+            <p style={{ margin: '0 0 24px', fontSize: '0.82rem', color: 'rgba(26,83,26,0.5)' }}>
+              Tap your family member icon to get started.
+            </p>
+            <button
+              onClick={() => setShowGateMsg(false)}
+              style={{
+                width: '100%', padding: '12px', borderRadius: 14, border: 'none',
+                background: '#1A531A', color: '#fff',
+                fontSize: '0.95rem', fontWeight: 700,
+                fontFamily: 'inherit', cursor: 'pointer',
+              }}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
@@ -1447,6 +1896,11 @@ function App() {
   const [showCreateActivity,setShowCreateActivity]= useState(false);
   const [mapPins,           setMapPins]           = useState([]);
   const [toast,             setToast]             = useState({ msg: '', visible: false });
+  const [authUser,          setAuthUser]          = useState(null);
+  const [showAuthModal,     setShowAuthModal]     = useState(false);
+  const [authMenuOpen,      setAuthMenuOpen]      = useState(false);
+  const [otpTarget,         setOtpTarget]         = useState(null); // { member, hasPin } awaiting PIN entry
+  const [commonDefaultTab,  setCommonDefaultTab]  = useState('plan');
   const toastTimer = useRef(null);
 
   // Merge built-in + custom activities into one lookup table
@@ -1477,25 +1931,64 @@ function App() {
     };
   }, []);
 
+  // ── Load app data (called after auth is confirmed) ─────────
+  async function loadAppData(gotoMemories = false) {
+    try {
+      const [tl, mems, acts] = await Promise.all([
+        sbLoadTagline(), sbLoadMembers(), sbLoadCustomActivities()
+      ]);
+      setTagline(tl);
+      setMembers(mems);
+      setCustomActivities(acts);
+      setScreen(gotoMemories ? 'common' : 'welcome');  // gotoMemories passed from bootstrap
+    } catch (err) {
+      console.error('Init error:', err);
+      _showToast('Connection error — check Supabase config');
+      setScreen('welcome');
+    }
+  }
+
   // ── Bootstrap ──────────────────────────────────────────────
   useEffect(() => {
     if (!isSupabaseConfigured()) {
       setTimeout(() => setScreen('config-error'), 600);
       return;
     }
-    Promise.all([sbLoadTagline(), sbLoadMembers(), sbLoadCustomActivities()])
-      .then(([tl, mems, acts]) => {
-        setTagline(tl);
-        setMembers(mems);
-        setCustomActivities(acts);
-        setScreen('welcome');
-      })
-      .catch(err => {
-        console.error('Init error:', err);
-        _showToast('Connection error — check Supabase config');
-        setScreen('welcome');
-      });
+
+    // Check if wellness tracker sent us here to open memories
+    const gotoMemories = sessionStorage.getItem('abc_goto') === 'memories';
+    if (gotoMemories) {
+      sessionStorage.removeItem('abc_goto');
+      setCommonDefaultTab('memories');
+    }
+
+    // Always load app data — no auth required to view the home screen
+    loadAppData(gotoMemories);
+
+    // Restore any existing admin session silently
+    window.sb.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setAuthUser(session.user);
+    });
+
+    const { data: { subscription: authSub } } = window.sb.auth.onAuthStateChange(
+      (_event, session) => { setAuthUser(session?.user ?? null); }
+    );
+
+    return () => authSub?.unsubscribe();
   }, []);
+
+  // ── Auth ───────────────────────────────────────────────────
+  function handleAuthClick() {
+    if (authUser) { setAuthMenuOpen(o => !o); }
+    else { setShowAuthModal(true); }
+  }
+  async function handleSignOut() {
+    await window.sb.auth.signOut();
+    localStorage.removeItem(AUTH_EMAIL_KEY);
+    setAuthUser(null);
+    setAuthMenuOpen(false);
+    _showToast('Signed out');
+  }
 
   // ── Tagline ────────────────────────────────────────────────
   async function handleTaglineSave(val) {
@@ -1508,23 +2001,38 @@ function App() {
     }
   }
 
+  // ── Navigate to member's wellness tracker ──────────────────
+  function navigateToMember(m) {
+    sessionStorage.setItem('wt_member_id', m.id         || '');
+    sessionStorage.setItem('wt_name',      m.name       || '');
+    sessionStorage.setItem('wt_avatar',    m.avatar_url || '');
+    window.location.href = 'wellness-tracker.html';
+  }
+
+  // ── Check if member has a PIN then show PIN modal ──────────
+  async function openPinModal(m) {
+    const { data } = await window.sb
+      .from('allusbasecamp_settings')
+      .select('value')
+      .eq('key', `member_pin_${m.id}`)
+      .maybeSingle();
+    setOtpTarget({ member: m, hasPin: !!data?.value });
+  }
+
   // ── Member slot click ──────────────────────────────────────
   function handleMemberSlotClick(slot, isFilled) {
     if (isFilled) {
       const m = members[slot];
       if (!m) return;
-      sessionStorage.setItem('wt_member_id', m.id          || '');
-      sessionStorage.setItem('wt_name',      m.name        || '');
-      sessionStorage.setItem('wt_avatar',    m.avatar_url  || '');
-      window.location.href = 'wellness-tracker.html';
+      openPinModal(m);  // PIN is always required; email is optional
     } else {
       setModalSlot(slot);
     }
   }
 
   // ── Save / delete member ───────────────────────────────────
-  async function handleSaveMember(slot, name, file, existingAvatarUrl) {
-    const saved = await sbSaveMember(slot, name, file, existingAvatarUrl);
+  async function handleSaveMember(slot, name, file, existingAvatarUrl, email) {
+    const saved = await sbSaveMember(slot, name, file, existingAvatarUrl, email);
     setMembers(prev => {
       const next = [...prev];
       next[slot] = saved;
@@ -1611,7 +2119,9 @@ function App() {
           tagline={tagline}
           onTaglineSave={handleTaglineSave}
           onMemberSlotClick={handleMemberSlotClick}
-          onCommonArea={() => setScreen('common')}
+          authUser={authUser}
+          onAuthClick={handleAuthClick}
+          onRemoveMember={handleDeleteMember}
         />
       )}
 
@@ -1624,6 +2134,7 @@ function App() {
           mapPins={mapPins}
           allActivitiesMeta={allActivitiesMeta}
           onDeletePin={handleDeletePin}
+          defaultTab={commonDefaultTab}
         />
       )}
 
@@ -1666,6 +2177,85 @@ function App() {
           onClose={() => setShowCreateActivity(false)}
           onSave={handleCreateActivity}
         />
+      )}
+
+      {/* Account button — fixed top-right, only on welcome (user is always authed here) */}
+      {screen === 'welcome' && authUser && (
+        <button
+          onClick={handleAuthClick}
+          aria-label="Account"
+          style={{
+            position: 'fixed',
+            top: 'max(14px, calc(env(safe-area-inset-top, 0px) + 8px))',
+            right: 16,
+            background: '#1A531A',
+            border: '2px solid #2D7A2D',
+            borderRadius: 12, width: 38, height: 38,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', zIndex: 200,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            fontSize: '0.82rem', fontWeight: 800,
+            color: '#fff', fontFamily: 'inherit',
+          }}>
+          {authUser.email ? authUser.email[0].toUpperCase() : '✓'}
+        </button>
+      )}
+
+      {/* Auth modal — triggered by user icon */}
+      {showAuthModal && (
+        <AuthModal
+          onClose={() => setShowAuthModal(false)}
+          onAuth={user => { setAuthUser(user); setShowAuthModal(false); _showToast('Signed in ✓'); }}
+        />
+      )}
+
+      {/* PIN gate — blocks entry until member enters/sets their PIN */}
+      {otpTarget && (
+        <MemberPinModal
+          member={otpTarget.member}
+          hasPin={otpTarget.hasPin}
+          onVerified={() => { const m = otpTarget.member; setOtpTarget(null); navigateToMember(m); }}
+          onCancel={() => setOtpTarget(null)}
+        />
+      )}
+
+      {/* Signed-in account menu (tap avatar when logged in) */}
+      {authMenuOpen && authUser && (
+        <div
+          onClick={() => setAuthMenuOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 899,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end',
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              marginTop: 'calc(env(safe-area-inset-top, 0px) + 58px)',
+              marginRight: 12,
+              background: '#FDFBF7', borderRadius: 16,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.14)',
+              border: '1px solid #E4D9C8',
+              minWidth: 210, padding: '12px 0', zIndex: 900,
+            }}>
+            <p style={{
+              fontSize: '0.75rem', color: '#6b7280', padding: '4px 16px 10px',
+              borderBottom: '1px solid #E4D9C8', margin: 0, wordBreak: 'break-all',
+            }}>
+              Signed in as<br />
+              <strong style={{ color: '#1A531A' }}>{authUser.email}</strong>
+            </p>
+            <button
+              onClick={handleSignOut}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '11px 16px', background: 'none', border: 'none',
+                fontSize: '0.88rem', color: '#dc2626', fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+              Sign Out
+            </button>
+          </div>
+        </div>
       )}
 
       <Toast msg={toast.msg} visible={toast.visible} />

@@ -666,21 +666,22 @@
       return (
         <div className="flex flex-col h-full">
 
-          {/* ── Back to Home ── */}
-          <div className="px-5 pt-1 pb-0 flex-shrink-0">
-            <a href="index.html"
-               className="inline-flex items-center gap-1.5 text-violet-600 font-semibold text-[13px] press-light"
-               style={{textDecoration:'none'}}>
-              <IconBack size={16} cls=""/>
-              All Us Basecamp
-            </a>
-          </div>
-
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto no-scroll px-5 pb-8">
 
+            {/* ── Title ── */}
+            <div className="mb-5"
+                 style={{ marginTop: 'max(16px, calc(env(safe-area-inset-top) + 8px))' }}>
+              <h1 className="text-[22px] font-black text-gray-900 leading-[1.2]">
+                Ready, {MEMBER_NAME}?<br/>Let's Stay Healthy! 🌿
+              </h1>
+              <p className="text-[13px] text-gray-400 mt-1.5 font-medium">
+                Track your habits and stay motivated
+              </p>
+            </div>
+
             {/* ── Profile row ── */}
-            <div className="flex items-center justify-between mt-2 mb-5">
+            <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
                 {/* Tappable avatar — opens upload / emoji sheet */}
                 <button className="relative press-light flex-shrink-0"
@@ -722,32 +723,23 @@
                       )}
                     </div>
                   </div>
-                  <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="mt-1.5">
                     <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full bg-gradient-to-r
                         ${levelIdx === 0 ? 'from-violet-400 to-violet-600 w-2/5' :
                           levelIdx === 1 ? 'from-amber-400  to-amber-600  w-3/5' :
                                            'from-rose-400   to-rose-600   w-full'}`}/>
                     </div>
-                    <span className="text-[9px] text-gray-400 font-medium">
-                      {levelIdx === 0 ? '40%' : levelIdx === 1 ? '65%' : '100%'}
-                    </span>
                   </div>
                 </div>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-white shadow-sm flex items-center justify-center press-light">
+              {/* Diamond icon → Memories */}
+              <button
+                onClick={() => { sessionStorage.setItem('abc_goto','memories'); window.location.href='index.html'; }}
+                className="w-10 h-10 rounded-2xl bg-white shadow-sm flex items-center justify-center press-light"
+                style={{ border: 'none', cursor: 'pointer' }}>
                 <IconGem size={20} cls="text-violet-500"/>
-              </div>
-            </div>
-
-            {/* ── Title ── */}
-            <div className="mb-5">
-              <h1 className="text-[22px] font-black text-gray-900 leading-[1.2]">
-                Ready, {MEMBER_NAME}?<br/>Let's Stay Healthy! 🌿
-              </h1>
-              <p className="text-[13px] text-gray-400 mt-1.5 font-medium">
-                Track your habits and stay motivated
-              </p>
+              </button>
             </div>
 
             {/* ── Filter tabs ── */}
@@ -825,6 +817,21 @@
             </div>
           </div>
 
+          {/* ── Home button ── */}
+          <div style={{ padding: '12px 20px 20px', flexShrink: 0 }}>
+            <button
+              onClick={() => { sessionStorage.setItem('abc_goto','memories'); window.location.href='index.html'; }}
+              style={{
+                width: '100%', padding: '13px', borderRadius: 16, border: 'none',
+                background: 'linear-gradient(135deg,#7C3AED,#6D28D9)',
+                color: '#fff', fontSize: '0.95rem', fontWeight: 700,
+                fontFamily: 'inherit', cursor: 'pointer', letterSpacing: '0.01em',
+                boxShadow: '0 4px 14px rgba(124,58,237,0.35)',
+              }}>
+              🏠 Home
+            </button>
+          </div>
+
           {/* Avatar upload / emoji picker sheet */}
           {showAvatarSheet && (
             <AvatarSheet
@@ -861,7 +868,8 @@
 
           {/* Back button */}
           <button onClick={onBack}
-                  className="mx-5 mt-4 flex items-center gap-1.5 text-violet-600 font-semibold text-[14px] press w-fit">
+                  className="mx-5 flex items-center gap-1.5 text-violet-600 font-semibold text-[14px] press w-fit"
+                  style={{ marginTop: 'max(16px, calc(env(safe-area-inset-top) + 8px))' }}>
             <IconBack size={18} cls=""/>
             Back
           </button>

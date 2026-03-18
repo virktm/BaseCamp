@@ -22,9 +22,13 @@ CREATE TABLE IF NOT EXISTS allusbasecamp_members (
   id         UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
   name       TEXT        NOT NULL,
   avatar_url TEXT,
+  email      TEXT,
   position   INT         NOT NULL CHECK (position >= 0 AND position <= 6),
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Add email column to existing installs (safe to run on new installs too)
+ALTER TABLE allusbasecamp_members ADD COLUMN IF NOT EXISTS email TEXT;
 
 -- Enforce one member per slot at the database level
 CREATE UNIQUE INDEX IF NOT EXISTS idx_allusbasecamp_members_position
@@ -100,7 +104,7 @@ CREATE TABLE IF NOT EXISTS allusbasecamp_map_pins (
 );
 
 
--- ── 8. Row Level Security (permissive — family app, no auth) ───
+-- ── 8. Row Level Security (anon access — family app) ───────────
 ALTER TABLE allusbasecamp_settings          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_members           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_common_plans      ENABLE ROW LEVEL SECURITY;
@@ -110,76 +114,29 @@ ALTER TABLE allusbasecamp_wellness_level    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_custom_activities  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allusbasecamp_map_pins          ENABLE ROW LEVEL SECURITY;
 
--- Allow custom activity UUIDs as the type value (removes the vacation/event/dine-only restriction)
+-- Allow custom activity UUIDs as the type value
 ALTER TABLE allusbasecamp_map_pins
   DROP CONSTRAINT IF EXISTS allusbasecamp_map_pins_type_check;
 
--- Allow the anon key full access (no authentication required)
+-- Allow anon key full access (PIN protection is handled in-app)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_settings' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_settings
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_members' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_members
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_common_plans' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_common_plans
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_personal_plans' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_personal_plans
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_wellness' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_wellness
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_wellness_level' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_wellness_level
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_map_pins' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_map_pins
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE tablename = 'allusbasecamp_custom_activities' AND policyname = 'anon_all'
-  ) THEN
-    CREATE POLICY anon_all ON allusbasecamp_custom_activities
-      FOR ALL TO anon USING (true) WITH CHECK (true);
-  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_settings'         AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_settings         FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_members'           AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_members          FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_common_plans'      AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_common_plans     FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_personal_plans'    AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_personal_plans   FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_wellness'          AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_wellness         FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_wellness_level'    AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_wellness_level   FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_custom_activities' AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_custom_activities FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'allusbasecamp_map_pins'          AND policyname = 'anon_all') THEN
+    CREATE POLICY anon_all ON allusbasecamp_map_pins         FOR ALL TO anon USING (true) WITH CHECK (true); END IF;
 END;
 $$;
 
