@@ -1901,6 +1901,7 @@ function App() {
   const [authMenuOpen,      setAuthMenuOpen]      = useState(false);
   const [otpTarget,         setOtpTarget]         = useState(null); // { member, hasPin } awaiting PIN entry
   const [commonDefaultTab,  setCommonDefaultTab]  = useState('plan');
+  const [backToTracker,     setBackToTracker]     = useState(false);
   const toastTimer = useRef(null);
 
   // Merge built-in + custom activities into one lookup table
@@ -1955,15 +1956,22 @@ function App() {
       return;
     }
 
-    // Check if wellness tracker sent us here to open memories
-    const gotoMemories = sessionStorage.getItem('abc_goto') === 'memories';
-    if (gotoMemories) {
+    // Check if wellness tracker sent us here to a specific tab
+    const gotoTab = sessionStorage.getItem('abc_goto'); // 'memories' | 'plan' | null
+    if (gotoTab) {
       sessionStorage.removeItem('abc_goto');
-      setCommonDefaultTab('memories');
+      setCommonDefaultTab(gotoTab);
+    }
+
+    // Check if we came from a member's activity page (back arrow should return there)
+    const fromTracker = sessionStorage.getItem('abc_from') === 'tracker';
+    if (fromTracker) {
+      sessionStorage.removeItem('abc_from');
+      setBackToTracker(true);
     }
 
     // Always load app data — no auth required to view the home screen
-    loadAppData(gotoMemories);
+    loadAppData(!!gotoTab);
 
     // Restore any existing admin session silently
     window.sb.auth.getSession().then(({ data: { session } }) => {
@@ -2127,7 +2135,14 @@ function App() {
 
       {screen === 'common' && (
         <CommonAreaScreen
-          onBack={() => setScreen('welcome')}
+          onBack={() => {
+            if (backToTracker) {
+              setBackToTracker(false);
+              window.location.href = 'wellness-tracker.html';
+            } else {
+              setScreen('welcome');
+            }
+          }}
           onSelectTile={handleCommonTileClick}
           customActivities={customActivities}
           onCreateActivity={() => setShowCreateActivity(true)}

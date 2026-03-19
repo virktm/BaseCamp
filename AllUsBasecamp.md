@@ -89,6 +89,7 @@ Generic key-value store — app-wide and per-member configuration.
 | Key | Value format | Purpose |
 |-----|-------------|---------|
 | `tagline` | Plain text | Editable welcome screen headline |
+| `member_pin_{member_id}` | SHA-256 hex string | Hashed 4-digit PIN (salted with member UUID) |
 | `wt_custom_acts_{member_id}` | JSON array | Custom wellness activity definitions per member |
 | `wt_hidden_acts_{member_id}` | JSON array of strings | Built-in activity IDs removed from a member's list |
 | `wt_tips_{member_id}` | JSON object `{id: tip}` | Custom "Why it matters" text overrides per member |
@@ -104,6 +105,7 @@ Up to 7 family members, one per position slot (0–6).
 | name | TEXT | Display name |
 | avatar_url | TEXT | Public Storage URL, or `emoji:🐱` prefix for emoji avatars |
 | position | INT | 0–6 (slot in grid), UNIQUE |
+| email | TEXT | Optional email address |
 | created_at | TIMESTAMPTZ | Auto-set |
 
 ---
@@ -205,23 +207,35 @@ Location pins dropped on the Memories map.
 index.html  (React SPA — App.jsx)
   │
   ├── WelcomeScreen
-  │     ├── Tap empty slot     →  MemberModal (add member)
-  │     ├── Tap filled avatar  →  MemberAreaScreen
-  │     │     ├── Plan tile    →  PlanScreen (meals / exercise / book)
-  │     │     └── Wellness Tracker button
-  │     │           └── window.location → wellness-tracker.html
-  │     │                 (sessionStorage: wt_member_id, wt_name, wt_avatar)
-  │     └── Family Basecamp   →  CommonAreaScreen
-  │           ├── Plan tile    →  PlanScreen (vacation / event / dine)
-  │           └── Memories     →  MemoriesScreen (Leaflet map)
+  │     ├── Long-press avatar    →  wiggle/edit mode (Done button exits)
+  │     │     └── Tap ✕ badge   →  PIN modal (if PIN set) → remove member
+  │     │                           (no PIN → remove immediately)
+  │     ├── Tap empty slot       →  MemberModal (add member: name + optional email + photo)
+  │     ├── Tap filled avatar    →  (no email) → MemberEmailModal
+  │     │                           (has email, no PIN) → MemberPinModal (set mode)
+  │     │                           (has email + PIN) → MemberPinModal (enter mode)
+  │     │                                 └── correct PIN → MemberAreaScreen
+  │     │                                       ├── Plan tile  →  PlanScreen (meals / exercise / book)
+  │     │                                       └── Wellness Tracker button
+  │     │                                             └── window.location → wellness-tracker.html
+  │     │                                                   (sessionStorage: wt_member_id, wt_name, wt_avatar)
+  │     └── Family Basecamp btn  →  gate popup ("Access granted only after clicking your avatar.")
+  │
+  ├── CommonAreaScreen  (opened after PIN verified, or via sessionStorage abc_goto)
+  │     ├── Back arrow           →  wellness-tracker.html (if abc_from=tracker) OR WelcomeScreen
+  │     ├── Plan tab             →  PlanScreen (vacation / event / dine)
+  │     └── Memories tab         →  MemoriesScreen (Leaflet map)
   │
   └── wellness-tracker.html  (separate React app)
         ├── HomeScreen (activity grid)
-        │     ├── Tap activity tile  →  DetailScreen
-        │     ├── Tap Add New tile   →  AddActivitySheet (overlay)
-        │     └── Tap avatar         →  AvatarSheet (overlay)
+        │     ├── EN/DE toggle         →  switch page language (localStorage: wt_lang)
+        │     ├── Swap User button     →  index.html (home screen)
+        │     ├── 🏡 Family Basecamp   →  index.html with abc_goto=plan + abc_from=tracker
+        │     ├── Tap activity tile    →  DetailScreen
+        │     ├── Tap Add New tile     →  AddActivitySheet (overlay)
+        │     └── Tap avatar           →  AvatarSheet (overlay)
         └── DetailScreen
-              ├── Status / Freq / Streak controls
+              ├── Status / Freq / Streak controls (labels translated)
               ├── Edit "Why it matters"
               └── Remove / Delete activity
 ```
@@ -232,18 +246,22 @@ index.html  (React SPA — App.jsx)
 
 ### Welcome Screen
 - **Editable tagline** — tap to edit inline; saves to `allusbasecamp_settings`
-- **7 circular avatar slots** — empty = add modal; filled = opens Member Area
-- **Family Basecamp button** — opens Common Area
+- **7 circular avatar slots** — empty = add modal (name + optional email + photo); filled = PIN auth flow
+- **Long-press any avatar** — enters wiggle/edit mode; red ✕ badge appears; tap Done (green pill) or outside grid to exit
+- **Removing a member** — if member has a PIN, must verify it first; if no PIN, removed immediately
+- **Family Basecamp button** — shows gate popup; navigation only possible after tapping an avatar and entering PIN
+- **PIN auth flow:** no email → email prompt → has email, no PIN → set PIN → has PIN → enter PIN → Member Area
 
 ### Member Area Screen
 - Hero header: member avatar + name
 - 3 personal plan tiles: 🥗 Plan Meals · 🏃 Exercise · 📖 Read Book
 - **Wellness Tracker** button → navigates to `wellness-tracker.html`
 
-### Common Area Screen
-- 3 shared plan tiles: ✈️ Plan Vacation · 🎉 Go to an Event · 🍽️ Dine Out
-- **Memories** button → opens Leaflet map
-- Filter carousel: All / Vacation / Events / Dining Out / custom activities (swipeable, fading right edge, deep-navy active chip)
+### Common Area Screen (Family Basecamp)
+- **Plan tab** — 3 shared plan tiles: ✈️ Plan Vacation · 🎉 Go to an Event · 🍽️ Dine Out
+- **Memories tab** — opens Leaflet map with filter carousel (All / Vacation / Events / Dining Out / custom activities; swipeable, fading right edge, deep-navy active chip)
+- **Back arrow** — returns to `wellness-tracker.html` if navigated from there (`abc_from=tracker`); otherwise returns to home screen
+- Opens on a specific tab via `abc_goto` sessionStorage key (`'plan'` or `'memories'`)
 
 ### Plan Screen
 - Scrollable list of entries with timestamps
@@ -263,28 +281,33 @@ index.html  (React SPA — App.jsx)
 
 ### Home Screen (Activity Grid)
 - **Profile row:** tappable avatar (opens AvatarSheet) · name · level badge (opens picker) · XP bar
-- **Filter tabs:** All / Ongoing / Not Planned
-- **2-column activity grid** — each tile shows icon, name, status badge, 🔥 streak
+- **Top-right controls:** EN/DE language toggle (`LangSwitch`) · Swap User button (diamond → home screen)
+- **Filter tabs:** All / Ongoing / Not Planned (translated)
+- **2-column activity grid** — each tile shows icon, name (translated for built-ins), status badge, 🔥 streak
 - **"Add New" tile** (dashed border) → opens AddActivitySheet at App level
+- **🏡 Family Basecamp button** (bottom) → navigates to Family Basecamp Plan tab with back-arrow support
 
 ### Detail Screen
-- Hero card with large icon
+- Hero card with large icon, name, and category (translated for built-ins)
 - Status toggle: ✅ Ongoing / ⏸ Not Planned
-- Frequency picker: Daily / Weekdays / 3×/week / Weekly / Monthly
+- Frequency picker: Daily / Weekdays / 3×/week / Weekly / Monthly (all translated)
 - Day Streak: M (month) / W (week) / D (day) badge row + **🎯 Mission Accomplished** / **↺ Reset**
-- **Why it matters** — pencil icon → inline textarea → Save / Cancel (persisted per member)
+- **Why it matters** — pencil icon → inline textarea → Save / Cancel (persisted per member; overrides default translated tip)
 - **Remove button** — built-ins: "✕ Remove from My List" (hides per-member); custom: "🗑 Delete Activity" (fully removes)
+- All button labels and section headings translated in the selected language
 
 ### Add Activity Sheet (bottom sheet)
-- Live preview tile updates as you type
-- Fields: Activity Name · Category · Why it matters
+- Live preview tile updates as you type (status badge translated)
+- Fields: Activity Name · Category · Why it matters (labels translated)
 - Icon picker: 36 emoji
 - Colour picker: 8 themes (Violet, Green, Blue, Orange, Pink, Cyan, Amber, Rose)
 - **＋ Create Activity** saves definition + initial wellness row to Supabase
+- Default sub/tip fallbacks use translated strings
 
 ### Avatar Sheet (bottom sheet)
 - **📷 Upload Photo** → device file picker → uploads to `member-avatars` bucket
 - **Emoji grid** — 25 options; saves `emoji:🐱` string as `avatar_url`
+- Sheet title and button labels translated in selected language
 
 ---
 
@@ -294,11 +317,22 @@ All customisations are stored in `allusbasecamp_settings` using namespaced keys.
 
 | Feature | Storage key | Format |
 |---------|------------|--------|
+| 4-digit PIN (hashed) | `member_pin_{id}` | SHA-256 hex string, salted with member UUID |
 | Custom activities | `wt_custom_acts_{id}` | JSON array of activity definition objects |
 | Hidden built-ins | `wt_hidden_acts_{id}` | JSON array of activity ID strings |
 | Custom tips | `wt_tips_{id}` | JSON object `{ activityId: "tip text" }` |
 
 Boot load uses a single `Promise.all` across 4 Supabase reads before first render.
+
+## Multilingual Support (Wellness Tracker)
+
+The wellness tracker supports English (`en`) and German (`de`). Language is controlled by a `LangSwitch` pill toggle in the profile row and persisted in `localStorage` (`wt_lang`).
+
+- `TRANSLATIONS` object maps all UI strings under `en` and `de` keys
+- Built-in activity labels, sub-titles, and default tips are translated
+- Custom activities (user-created) are never translated — shown as entered
+- Frequency option keys (`'Daily'`, `'Weekly'`, etc.) remain English in storage; only their display labels are translated
+- Components that accept translated text receive a `lang` prop: `HomeScreen`, `DetailScreen`, `AddActivitySheet`, `AvatarSheet`
 
 ---
 

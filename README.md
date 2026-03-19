@@ -133,6 +133,7 @@ Generic key-value store for app-wide and per-member configuration.
 | Key | Format | Purpose |
 |---|---|---|
 | `tagline` | Plain text | Welcome screen editable headline |
+| `member_pin_{member_id}` | SHA-256 hex string | Hashed 4-digit PIN for member authentication (salted with member ID) |
 | `wt_custom_acts_{member_id}` | JSON array | Custom wellness activity definitions per member |
 | `wt_hidden_acts_{member_id}` | JSON array of IDs | Built-in activity IDs removed from a member's list |
 | `wt_tips_{member_id}` | JSON object `{id: tip}` | Custom "Why it matters" text overrides per member |
@@ -148,6 +149,7 @@ Up to 7 family members, each occupying a numbered slot (0–6).
 | `name` | TEXT | Member's display name |
 | `avatar_url` | TEXT | Public Storage URL, or `emoji:🐱` prefix for emoji avatars |
 | `position` | INT | Slot index 0–6 (unique constraint) |
+| `email` | TEXT | Optional member email address |
 | `created_at` | TIMESTAMPTZ | Row creation time |
 
 ---
@@ -270,50 +272,70 @@ The main React Single Page App (~74 KB). All screens for the primary experience.
 - `PRESET_EMOJIS` / `PRESET_GRADIENTS` — options for creating custom map activities
 
 **Supabase helpers:**
-`sbLoadTagline`, `sbSaveTagline`, `sbLoadMembers`, `sbSaveMember`, `sbDeleteMember`, `sbLoadPlans`, `sbAddPlan`, `sbDeletePlan`, `sbLoadMapPins`, `sbSaveMapPin`, `sbDeleteMapPin`, `sbLoadCustomActivities`, `sbSaveCustomActivity`, `sbDeleteCustomActivity`
+`sbLoadTagline`, `sbSaveTagline`, `sbLoadMembers`, `sbSaveMember`, `sbSaveMemberEmail`, `sbDeleteMember`, `sbLoadPlans`, `sbAddPlan`, `sbDeletePlan`, `sbLoadMapPins`, `sbSaveMapPin`, `sbDeleteMapPin`, `sbLoadCustomActivities`, `sbSaveCustomActivity`, `sbDeleteCustomActivity`
+
+**Auth helpers:**
+`hashPin(pin, memberId)` — SHA-256 hash using Web Crypto API, salted with member ID. `openPinModal(member)` — checks Supabase for existing PIN hash before showing modal.
 
 **Components:**
 | Component | Purpose |
 |---|---|
 | `Toast` | Auto-dismissing slide-up notification |
-| `AvatarSlot` | Renders member avatar — handles photo URL, `emoji:` prefix, and initial-letter fallback |
+| `AvatarSlot` | Renders member avatar with long-press (500 ms) to enter edit mode; shows wiggle animation and red ✕ badge in edit mode |
 | `LoadingScreen` | Spinner during initial Supabase boot |
-| `WelcomeScreen` | Home screen: logo, editable tagline, 7-slot member grid, Family Basecamp button |
-| `MemberModal` | Add / edit member bottom sheet (name + photo upload) |
+| `WelcomeScreen` | Home screen: logo, editable tagline, 7-slot member grid, Family Basecamp gate popup, long-press edit mode with styled Done button |
+| `MemberModal` | Add / edit member bottom sheet (name + optional email + photo upload) |
+| `MemberEmailModal` | Two-stage prompt: 🔒 message → email input. Shown when a member without a registered email taps their avatar |
+| `MemberPinModal` | Full-screen 4-digit PIN entry. Modes: `set` → `confirm` (new PIN) or `enter` (existing PIN). Uses a single hidden `<input type="tel">` with dot indicators. PIN is SHA-256 hashed before saving. Also used to confirm member removal |
 | `MemberAreaScreen` | Individual member hub: 3 personal plan tiles + Wellness Tracker button |
-| `CommonAreaScreen` | Shared family hub: 3 common plan tiles + Memories button |
+| `CommonAreaScreen` | Shared family hub: Plan and Memories tabs. `defaultTab` prop controls which tab opens on entry. Back arrow returns to member's activity page if navigated from wellness tracker |
 | `PlanScreen` | Reusable scrollable list for any plan type (add / delete entries) |
 | `MemoriesScreen` | Full-screen Leaflet map with filter carousel and pin management |
 | `AddPinModal` | Drop a new map pin (click map → fill label + month/year) |
 | `AddCustomActivityModal` | Create a new custom map activity (name, emoji, gradient) |
-| `App` | Root: owns all state, single `Promise.all` boot, navigation |
+| `App` | Root: owns all state, single `Promise.all` boot, navigation, PIN auth flow, email gate flow |
 
 ---
 
 ### `wellness-tracker.html`
-Self-contained React mini-app for individual member wellness tracking (~57 KB). Navigated to from the Member Area screen; receives member context via `sessionStorage`.
+Self-contained React mini-app for individual member wellness tracking. Navigated to from the Member Area screen; receives member context via `sessionStorage`.
 
 **Session context:** `MEMBER_ID`, `MEMBER_NAME`, `MEMBER_AVATAR` — written by `App.jsx` before navigation.
+
+**Cross-page navigation signals (sessionStorage):**
+
+| Key | Value | Direction | Purpose |
+|---|---|---|---|
+| `abc_goto` | `'plan'` or `'memories'` | wellness-tracker → index | Opens Family Basecamp on a specific tab |
+| `abc_from` | `'tracker'` | wellness-tracker → index | Tells App.jsx the back arrow should return to wellness-tracker |
+| `wt_member_id` / `wt_name` / `wt_avatar` | strings | index → wellness-tracker | Active member context for the tracker page |
 
 **Supabase helpers:**
 `sbLoadWellness`, `sbSaveActivity`, `sbSaveLevel`, `sbUpdateMemberAvatar`, `sbSaveCustomActs`, `sbLoadCustomActs`, `sbLoadHiddenActs`, `sbSaveHiddenActs`, `sbLoadCustomTips`, `sbSaveCustomTips`
 
 **Data constants:**
 - `ACTIVITIES` — 6 built-in habits (Eat Healthy, Walk, Swim, Cycle, Badminton, Read Book)
-- `LEVELS` — Beginner / Intermediate / Advanced
-- `FREQ_OPTIONS` — Daily / Weekdays / 3×/week / Weekly / Monthly
+- `LEVELS` — Beginner / Intermediate / Advanced (display labels translated via `TRANSLATIONS`)
+- `FREQ_OPTIONS` — English keys used for storage: Daily / Weekdays / 3×/week / Weekly / Monthly
 - `COLOR_THEMES` — 8 Tailwind colour themes (Violet, Green, Blue, Orange, Pink, Cyan, Amber, Rose)
 - `ACTIVITY_ICONS` — 36 emoji options for custom activities
 - `AVATAR_EMOJIS` — 25 emoji options for avatars
+- `TRANSLATIONS` — EN/DE string table covering all UI text; built-in activity labels, subs, and tips included. Custom activities are never translated
 
 **Components:**
 | Component | Purpose |
 |---|---|
-| `AddActivitySheet` | Bottom sheet to create a custom activity (name, category, tip, icon picker, colour picker). Rendered at App level to avoid `overflow: hidden` clipping |
-| `AvatarSheet` | Bottom sheet for photo upload or emoji avatar selection |
-| `HomeScreen` | Activity grid with filter tabs, profile row, level picker |
-| `DetailScreen` | Activity detail: status, frequency, day streak, editable "Why it matters", remove/delete button |
-| `App` | Root: single `Promise.all` boot load across 4 Supabase reads, all state, navigation |
+| `LangSwitch` | EN/DE pill toggle in the profile row. Persists selection to `localStorage` (`wt_lang`). Switches all UI text instantly |
+| `AddActivitySheet` | Bottom sheet to create a custom activity (name, category, tip, icon picker, colour picker). Accepts `lang` prop. Rendered at App level to avoid `overflow: hidden` clipping |
+| `AvatarSheet` | Bottom sheet for photo upload or emoji avatar selection. Accepts `lang` prop |
+| `HomeScreen` | Activity grid with filter tabs, profile row (avatar, level picker, `LangSwitch`, Swap User diamond button), `🏡 Family Basecamp` button. Accepts `lang`/`setLang` props |
+| `DetailScreen` | Activity detail: status, frequency, day streak, editable "Why it matters", remove/delete button. Accepts `lang` prop. Built-in activity labels/subs shown in selected language |
+| `App` | Root: single `Promise.all` boot load across 4 Supabase reads, all state, navigation, `lang` state (initialised from `localStorage`) |
+
+**Profile row buttons (top-right):**
+- **EN/DE toggle** — `LangSwitch` component, switches display language for entire page
+- **Swap User (diamond icon)** — navigates to `index.html` (home screen) to switch member
+- **🏡 Family Basecamp (bottom button)** — sets `abc_goto=plan` + `abc_from=tracker` then navigates to `index.html`, opening the Plan tab in Family Basecamp with back-arrow support
 
 ---
 
@@ -407,14 +429,19 @@ The original vanilla JavaScript implementation (retained for reference). The Rea
 
 #### 1. Welcome / Home Screen
 - **Logo** in the bottom-left; **tagline** above it (tap to edit and save)
-- **Member grid** — up to 7 avatar circles; empty slots show a `+` button
-- **"Family Basecamp" button** — opens the shared family area
+- **Member grid** — up to 7 avatar circles; empty slots show a `+` (only visible when not in edit mode)
+- **"Family Basecamp" button** — shows a gate popup ("Access granted only after clicking your avatar."); stays on home screen
 
-**Add a member:** Tap an empty `+` slot → enter name → optionally upload a photo → **Save Member**
+**Add a member:** Tap an empty `+` slot → enter name + optional email → optionally upload a photo → **Save Member**
 
-**Edit a member:** Tap a filled avatar → same modal opens pre-filled
+**Edit a member:** Long-press any avatar (500 ms) → wiggle mode activates → tap the red ✕ badge to remove; tap **Done** button or anywhere outside the grid to exit edit mode
 
-**Delete a member:** Open edit modal → tap **Remove Member** (red)
+**Remove a member (with PIN):** In wiggle mode, tap ✕ → if member has a PIN, the PIN modal appears and must be verified before deletion proceeds; if no PIN is set, removal is immediate
+
+**Auth flow (tap a filled avatar):**
+1. Member has no email → `MemberEmailModal` prompts to register an email (optional skip available)
+2. Member has email, no PIN set → `MemberPinModal` in `set` mode → enter 4-digit PIN → confirm PIN → PIN is SHA-256 hashed and saved
+3. Member has email + PIN → `MemberPinModal` in `enter` mode → correct PIN → navigate to Member Area
 
 ---
 
@@ -426,8 +453,9 @@ The original vanilla JavaScript implementation (retained for reference). The Rea
 ---
 
 #### 3. Family Basecamp (Common Area) Screen
-- **3 shared activity tiles:** ✈️ Plan Vacation · 🎉 Go to an Event · 🍽️ Dine Out
-- **Memories button** → opens the interactive map
+- **Plan tab** — 3 shared activity tiles: ✈️ Plan Vacation · 🎉 Go to an Event · 🍽️ Dine Out
+- **Memories tab** — opens the interactive Leaflet map
+- **Back arrow** — returns to member's wellness tracker page if navigated from there; otherwise returns to home screen
 
 ---
 
@@ -453,31 +481,39 @@ Full-screen interactive Leaflet map:
 Per-member. All data scoped to the member's UUID. Navigated to from the Member Area.
 
 #### 1. Home Screen (Activity Grid)
-- **Profile row** — avatar (tap → AvatarSheet), name, level badge (tap → Beginner / Intermediate / Advanced picker), XP progress bar
-- **Filter tabs** — All / Ongoing / Not Planned
-- **2-column activity grid** — each card shows icon, name, status badge, 🔥 streak
+- **Profile row:**
+  - Avatar (tap → AvatarSheet)
+  - Name + level badge (tap → Beginner / Intermediate / Advanced picker) + XP progress bar
+  - **EN/DE language toggle** — switches entire page to English or German; persisted in `localStorage`
+  - **Swap User button** (diamond icon) — navigates to home screen (`index.html`) to switch member
+- **Filter tabs** — All / Ongoing / Not Planned (translated in selected language)
+- **2-column activity grid** — each card shows icon, name (translated for built-ins), status badge, 🔥 streak
 - **"Add New" tile** (dashed) → opens Add Activity Sheet
+- **🏡 Family Basecamp button** (bottom) — opens Family Basecamp on the Plan tab with back-arrow support
 
 #### 2. Detail Screen
-- **Hero card** — large icon, activity name, category
+- **Hero card** — large icon, activity name and category (translated for built-ins in selected language)
 - **Status toggle** — ✅ Ongoing / ⏸ Not Planned
-- **Frequency picker** — Daily / Weekdays / 3×/week / Weekly / Monthly
+- **Frequency picker** — Daily / Weekdays / 3×/week / Weekly / Monthly (all labels translated)
 - **Day Streak** — M/W/D badge row; **🎯 Mission Accomplished** increments streak; **↺ Reset** clears it
-- **Why it matters** — tap pencil icon → textarea → Save / Cancel (persisted to Supabase)
+- **Why it matters** — tap pencil icon → textarea → Save / Cancel (persisted to Supabase; user-edited tips override the default translated tip)
 - **Remove button:**
   - Built-in activity → "✕ Remove from My List" (hidden per-member, other members unaffected)
   - Custom activity → "🗑 Delete Activity" (fully removed including wellness row)
+- All labels translated in selected language
 
 #### 3. Add Activity Sheet
-- Live preview tile updates in real time
-- **Activity Name** (required) · **Category** · **Why it matters**
+- Live preview tile updates in real time (status badge text translated)
+- **Activity Name** (required) · **Category** · **Why it matters** (labels translated)
 - **Icon picker** — 36 emoji
 - **Colour theme** — 8 dot options (Violet, Green, Blue, Orange, Pink, Cyan, Amber, Rose)
 - **＋ Create Activity** — saves definition to `wt_custom_acts_{id}` + initialises wellness row
+- Default fallback strings for sub/tip use translated values from `TRANSLATIONS`
 
 #### 4. Avatar Sheet
 - **📷 Upload Photo** — file picker → uploads to `members/{member_id}/avatar.{ext}` in Supabase Storage
 - **Emoji grid** — 25 options; stores `emoji:🐱` as the `avatar_url`
+- Sheet title and labels translated in selected language
 
 ---
 
@@ -562,7 +598,8 @@ Vercel auto-deploys on every push to `main`.
 
 ## Notes
 
-- **No authentication** — AllUsBasecamp is a trusted-device family app. The anon key grants full table access. Do not share the deployed URL publicly.
+- **PIN authentication** — Each member sets a 4-digit PIN on first login. PINs are SHA-256 hashed (salted with the member's UUID) and stored in `allusbasecamp_settings`. Supabase RLS remains `anon_all`; security is enforced in-app. Members without a PIN can still be removed without confirmation.
+- **Email is optional** — Members without a registered email see a prompt when tapping their avatar, but can skip it. Email is stored in `allusbasecamp_members.email` and is not used for authentication.
 - **Offline support** — no Service Worker is included. All data requires a live Supabase connection.
 - **Max members** — capped at 7, enforced by a `UNIQUE` index on `position` in the database and validated in the UI.
 - **Per-member wellness customisation** — hidden activities, custom activity definitions, and tip overrides are all stored in the `allusbasecamp_settings` key-value table using namespaced keys. No schema changes needed to add per-member features.

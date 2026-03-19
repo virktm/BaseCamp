@@ -53,6 +53,17 @@
     .press:active { transform: scale(0.93); }
     .press-light:active { transform: scale(0.97); }
 
+    /* ── Swap User tooltip ── */
+    .swap-user-wrap { position: relative; }
+    .swap-user-tip {
+      position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+      background: rgba(30,30,30,0.88); color: #fff;
+      font-size: 11px; font-weight: 600; white-space: nowrap;
+      padding: 4px 9px; border-radius: 8px;
+      pointer-events: none; opacity: 0; transition: opacity 0.15s ease;
+    }
+    .swap-user-wrap:hover .swap-user-tip { opacity: 1; }
+
     /* ── Hide scrollbar ── */
     .no-scroll::-webkit-scrollbar { display: none; }
     .no-scroll { scrollbar-width: none; }
@@ -369,6 +380,147 @@
 
     const FREQ_OPTIONS = ['Daily', 'Weekdays', '3×/week', 'Weekly', 'Monthly'];
 
+    /* ════════════════════════════════════════════════════
+       TRANSLATIONS  (EN / DE)
+       ════════════════════════════════════════════════════ */
+    const TRANSLATIONS = {
+      en: {
+        greeting:        (n) => `Ready, ${n}?`,
+        greetingSub:     "Let's Stay Healthy! 🌿",
+        subtitle:        'Track your habits and stay motivated',
+        activitiesHdr:   (n) => `${n}'s Activities`,
+        seeAll:          'See all',
+        noActivities:    'No activities in this category.',
+        addNew:          'Add New',
+        createHabit:     'Create a habit',
+        custom:          'Custom',
+        swapUser:        'Swap User',
+        familyBasecamp:  '🏡 Family Basecamp',
+        tabs:    { All: 'All', Ongoing: 'Ongoing', 'Not Planned': 'Not Planned' },
+        levels:  ['Beginner', 'Intermediate', 'Advanced'],
+        status:  { ongoing: 'Ongoing', notplanned: 'Not Planned' },
+        freq:    { Daily: 'Daily', Weekdays: 'Weekdays', '3×/week': '3×/week', Weekly: 'Weekly', Monthly: 'Monthly' },
+        back:            'Back',
+        statusLabel:     'Status',
+        ongoingBtn:      '✅ Ongoing',
+        notPlannedBtn:   '⏸ Not Planned',
+        frequency:       'Frequency',
+        dayStreak:       'Day Streak',
+        startToday:      'Start today!',
+        keepGoing:       'Keep going!',
+        reset:           '↺ Reset',
+        mission:         '🎯 Mission Accomplished!',
+        whyItMatters:    'Why it matters',
+        edit:            'Edit',
+        save:            'Save',
+        cancel:          'Cancel',
+        firstDay:        'Complete your first day to start tracking',
+        deleteActivity:  '🗑 Delete Activity',
+        removeFromList:  '✕ Remove from My List',
+        newActivity:     'New Activity',
+        activityName:    'Activity Name *',
+        category:        'Category',
+        pickIcon:        'Pick an Icon',
+        colorTheme:      'Color Theme',
+        creating:        'Creating…',
+        createActivity:  '＋ Create Activity',
+        changePhoto:     'Change Photo',
+        uploadPhoto:     '📷 Upload Photo',
+        orPickAvatar:    'or pick an avatar',
+        customSub:       'Custom activity',
+        customTip:       'Build this habit consistently for lasting results.',
+        acts: {
+          healthy:   { label: 'Eat Healthy',    sub: 'Nutrition plan',      tip: 'Focus on leafy greens, lean proteins, and whole grains. Avoid processed sugars.' },
+          walk:      { label: 'Go for a Walk',  sub: 'Cardio habit',        tip: 'A brisk 20-minute walk can significantly boost your mood and energy levels.' },
+          swim:      { label: 'Swim',           sub: 'Full-body workout',   tip: 'Swimming is a low-impact, high-reward workout that engages your entire body.' },
+          cycle:     { label: 'Cycle',          sub: 'Endurance training',  tip: 'Cycling builds leg strength and cardiovascular endurance efficiently.' },
+          badminton: { label: 'Badminton',      sub: 'Agility sport',       tip: 'Badminton improves reflexes, balance, and burns serious calories.' },
+          read:      { label: 'Read Book',      sub: 'Mental wellness',     tip: 'Reading before bed improves sleep quality and reduces stress by up to 68%.' },
+        },
+      },
+      de: {
+        greeting:        (n) => `Bereit, ${n}?`,
+        greetingSub:     'Bleib gesund! 🌿',
+        subtitle:        'Verfolge deine Gewohnheiten und bleib motiviert',
+        activitiesHdr:   (n) => `${n}s Aktivitäten`,
+        seeAll:          'Alle ansehen',
+        noActivities:    'Keine Aktivitäten in dieser Kategorie.',
+        addNew:          'Neu hinzufügen',
+        createHabit:     'Gewohnheit erstellen',
+        custom:          'Eigene',
+        swapUser:        'Nutzer wechseln',
+        familyBasecamp:  '🏡 Familienbasis',
+        tabs:    { All: 'Alle', Ongoing: 'Laufend', 'Not Planned': 'Nicht geplant' },
+        levels:  ['Anfänger', 'Fortgeschritten', 'Experte'],
+        status:  { ongoing: 'Laufend', notplanned: 'Nicht geplant' },
+        freq:    { Daily: 'Täglich', Weekdays: 'Wochentags', '3×/week': '3×/Woche', Weekly: 'Wöchentlich', Monthly: 'Monatlich' },
+        back:            'Zurück',
+        statusLabel:     'Status',
+        ongoingBtn:      '✅ Laufend',
+        notPlannedBtn:   '⏸ Nicht geplant',
+        frequency:       'Häufigkeit',
+        dayStreak:       'Tage-Serie',
+        startToday:      'Starte heute!',
+        keepGoing:       'Weiter so!',
+        reset:           '↺ Zurücksetzen',
+        mission:         '🎯 Ziel erreicht!',
+        whyItMatters:    'Warum es wichtig ist',
+        edit:            'Bearbeiten',
+        save:            'Speichern',
+        cancel:          'Abbrechen',
+        firstDay:        'Schließe deinen ersten Tag ab, um zu beginnen',
+        deleteActivity:  '🗑 Aktivität löschen',
+        removeFromList:  '✕ Aus meiner Liste entfernen',
+        newActivity:     'Neue Aktivität',
+        activityName:    'Aktivitätsname *',
+        category:        'Kategorie',
+        pickIcon:        'Symbol wählen',
+        colorTheme:      'Farbthema',
+        creating:        'Erstelle…',
+        createActivity:  '＋ Aktivität erstellen',
+        changePhoto:     'Foto ändern',
+        uploadPhoto:     '📷 Foto hochladen',
+        orPickAvatar:    'oder Avatar auswählen',
+        customSub:       'Benutzerdefinierte Aktivität',
+        customTip:       'Halte diese Gewohnheit konsequent ein für dauerhafte Ergebnisse.',
+        acts: {
+          healthy:   { label: 'Gesund essen',    sub: 'Ernährungsplan',     tip: 'Fokussiere dich auf Blattgemüse, magere Proteine und Vollkorn. Vermeide Industriezucker.' },
+          walk:      { label: 'Spazieren gehen', sub: 'Cardio-Gewohnheit',  tip: 'Ein flotter 20-min-Spaziergang steigert Stimmung und Energie erheblich.' },
+          swim:      { label: 'Schwimmen',       sub: 'Ganzkörpertraining', tip: 'Schwimmen ist gelenkschonend und beansprucht den ganzen Körper.' },
+          cycle:     { label: 'Radfahren',       sub: 'Ausdauertraining',   tip: 'Radfahren stärkt die Beine und verbessert die Herz-Kreislauf-Ausdauer.' },
+          badminton: { label: 'Badminton',       sub: 'Agilitätssport',     tip: 'Badminton verbessert Reflexe, Gleichgewicht und verbrennt Kalorien.' },
+          read:      { label: 'Buch lesen',      sub: 'Mentales Wohlbef.',  tip: 'Lesen vor dem Schlaf verbessert die Schlafqualität und reduziert Stress.' },
+        },
+      },
+    };
+
+    /* ── Language toggle switch ── */
+    function LangSwitch({ lang, setLang }) {
+      function toggle() {
+        const nl = lang === 'en' ? 'de' : 'en';
+        setLang(nl);
+        try { localStorage.setItem('wt_lang', nl); } catch {}
+      }
+      return (
+        <button onClick={toggle} title="Switch language"
+          style={{ display:'flex', alignItems:'center', background:'#fff',
+                   border:'1.5px solid #e5e7eb', borderRadius:20, padding:2,
+                   cursor:'pointer', boxShadow:'0 1px 4px rgba(0,0,0,0.08)',
+                   gap:0, flexShrink:0 }}>
+          {['EN','DE'].map(l => (
+            <span key={l}
+              style={{ padding:'3px 9px', borderRadius:16,
+                       fontSize:'11px', fontWeight:700, letterSpacing:'0.04em',
+                       background: lang === l.toLowerCase() ? '#7C3AED' : 'transparent',
+                       color: lang === l.toLowerCase() ? '#fff' : '#9ca3af',
+                       transition:'all 0.15s ease' }}>
+              {l}
+            </span>
+          ))}
+        </button>
+      );
+    }
+
     const COLOR_THEMES = [
       { key: 'violet', label: 'Violet', bg: 'bg-violet-100', iconBg: 'bg-violet-200/70', iconCls: 'text-violet-700', border: 'border-violet-200/80', dot: '#7C3AED' },
       { key: 'green',  label: 'Green',  bg: 'bg-green-100',  iconBg: 'bg-green-200/70',  iconCls: 'text-green-700',  border: 'border-green-200/80',  dot: '#16a34a' },
@@ -394,7 +546,7 @@
     /* ════════════════════════════════════════════════════
        ADD ACTIVITY SHEET
        ════════════════════════════════════════════════════ */
-    function AddActivitySheet({ onClose, onSave }) {
+    function AddActivitySheet({ onClose, onSave, lang }) {
       const [name,          setName]          = useState('');
       const [sub,           setSub]           = useState('');
       const [tip,           setTip]           = useState('');
@@ -403,14 +555,15 @@
       const [saving,        setSaving]        = useState(false);
 
       const theme = COLOR_THEMES.find(t => t.key === selectedColor) || COLOR_THEMES[0];
+      const T = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
       async function handleCreate() {
         if (!name.trim()) return;
         const newAct = {
           id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           label:     name.trim(),
-          sub:       sub.trim()  || 'Custom activity',
-          tip:       tip.trim()  || 'Build this habit consistently for lasting results.',
+          sub:       sub.trim() || T.customSub,
+          tip:       tip.trim() || T.customTip,
           iconEmoji: selectedIcon,
           colorKey:  selectedColor,
           bg:        theme.bg,
@@ -437,7 +590,7 @@
             <div className="sticky top-0 bg-white px-5 pt-4 pb-3 border-b border-gray-100 z-10">
               <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3" />
               <div className="flex items-center justify-between">
-                <h3 className="font-black text-gray-900 text-[18px]">New Activity</h3>
+                <h3 className="font-black text-gray-900 text-[18px]">{T.newActivity}</h3>
                 <button onClick={onClose}
                   className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[14px] press-light">
                   ✕
@@ -455,19 +608,19 @@
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p className={`font-bold text-[15px] leading-tight ${name ? 'text-gray-800' : 'text-gray-400'}`}>
-                    {name || 'Activity name…'}
+                    {name || (lang === 'de' ? 'Aktivitätsname…' : 'Activity name…')}
                   </p>
-                  <p className="text-[12px] text-gray-400 mt-0.5">{sub || 'Category'}</p>
+                  <p className="text-[12px] text-gray-400 mt-0.5">{sub || T.category}</p>
                 </div>
                 <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-gray-100 text-gray-400`}>
-                  Not Planned
+                  {T.status['notplanned']}
                 </span>
               </div>
 
               {/* Name */}
               <div>
                 <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-                  Activity Name *
+                  {T.activityName}
                 </label>
                 <input
                   value={name} onChange={e => setName(e.target.value)} maxLength={30}
@@ -479,7 +632,7 @@
               {/* Category */}
               <div>
                 <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-                  Category
+                  {T.category}
                 </label>
                 <input
                   value={sub} onChange={e => setSub(e.target.value)} maxLength={30}
@@ -491,7 +644,7 @@
               {/* Why it matters */}
               <div>
                 <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-                  Why it matters
+                  {T.whyItMatters}
                 </label>
                 <textarea
                   value={tip} onChange={e => setTip(e.target.value)} maxLength={220} rows={3}
@@ -503,7 +656,7 @@
               {/* Icon picker */}
               <div>
                 <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                  Pick an Icon
+                  {T.pickIcon}
                 </label>
                 <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
                   {ACTIVITY_ICONS.map(icon => (
@@ -519,7 +672,7 @@
               {/* Color theme */}
               <div>
                 <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                  Color Theme
+                  {T.colorTheme}
                 </label>
                 <div className="flex gap-3 flex-wrap">
                   {COLOR_THEMES.map(t => (
@@ -538,7 +691,7 @@
                   boxShadow:   (!name.trim() || saving) ? 'none'    : '0 8px 24px rgba(109,40,217,0.35)',
                   cursor:      (!name.trim() || saving) ? 'default'  : 'pointer',
                 }}>
-                {saving ? 'Creating…' : '＋ Create Activity'}
+                {saving ? T.creating : T.createActivity}
               </button>
 
             </div>
@@ -550,9 +703,10 @@
     /* ════════════════════════════════════════════════════
        AVATAR UPLOAD SHEET
        ════════════════════════════════════════════════════ */
-    function AvatarSheet({ onClose, onSave }) {
+    function AvatarSheet({ onClose, onSave, lang }) {
       const fileRef          = useRef(null);
       const [saving, setSaving] = useState(false);
+      const T = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
       async function handleFile(e) {
         const f = e.target.files[0];
@@ -577,20 +731,20 @@
             {/* Handle */}
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
 
-            <h3 className="font-bold text-gray-900 text-[17px] text-center mb-5">Change Photo</h3>
+            <h3 className="font-bold text-gray-900 text-[17px] text-center mb-5">{T.changePhoto}</h3>
 
             {/* Upload photo */}
             <button onClick={() => fileRef.current?.click()} disabled={saving}
               className="w-full py-3.5 rounded-2xl font-bold text-[15px] text-white press mb-5 flex items-center justify-center gap-2"
               style={{ background: 'linear-gradient(135deg,#7C3AED,#6D28D9)', opacity: saving ? 0.6 : 1 }}>
-              📷 Upload Photo
+              {T.uploadPhoto}
             </button>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
 
             {/* Divider */}
             <div className="flex items-center gap-3 mb-4">
               <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-[12px] text-gray-400 font-medium">or pick an avatar</span>
+              <span className="text-[12px] text-gray-400 font-medium">{T.orPickAvatar}</span>
               <div className="flex-1 h-px bg-gray-100" />
             </div>
 
@@ -613,11 +767,12 @@
     /* ════════════════════════════════════════════════════
        HOME SCREEN
        ════════════════════════════════════════════════════ */
-    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange, onOpenAddSheet }) => {
+    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange, onOpenAddSheet, lang, setLang }) => {
       const [activeTab,       setActiveTab]       = useState('All');
       const [showLevelPicker, setShowLevelPicker] = useState(false);
       const [avatarUrl,       setAvatarUrl]       = useState(MEMBER_AVATAR);
       const [showAvatarSheet, setShowAvatarSheet] = useState(false);
+      const T = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
       const currentLevel = LEVELS[levelIdx];
 
@@ -673,10 +828,10 @@
             <div className="mb-5"
                  style={{ marginTop: 'max(16px, calc(env(safe-area-inset-top) + 8px))' }}>
               <h1 className="text-[22px] font-black text-gray-900 leading-[1.2]">
-                Ready, {MEMBER_NAME}?<br/>Let's Stay Healthy! 🌿
+                {T.greeting(MEMBER_NAME)}<br/>{T.greetingSub}
               </h1>
               <p className="text-[13px] text-gray-400 mt-1.5 font-medium">
-                Track your habits and stay motivated
+                {T.subtitle}
               </p>
             </div>
 
@@ -705,7 +860,7 @@
                       <button
                         onClick={() => setShowLevelPicker(p => !p)}
                         className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold tracking-wide press-light flex items-center gap-1 ${currentLevel.color}`}>
-                        {currentLevel.label}
+                        {T.levels[levelIdx]}
                         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="m6 9 6 6 6-6"/></svg>
                       </button>
                       {showLevelPicker && (
@@ -716,7 +871,7 @@
                                     className={`w-full text-left px-4 py-2.5 text-[13px] font-semibold flex items-center gap-2 press-light
                                       ${i === levelIdx ? lv.color : 'text-gray-600 hover:bg-gray-50'}`}>
                               {i === levelIdx && <span className="text-[10px]">✓</span>}
-                              {lv.label}
+                              {T.levels[i]}
                             </button>
                           ))}
                         </div>
@@ -733,13 +888,20 @@
                   </div>
                 </div>
               </div>
-              {/* Diamond icon → Memories */}
-              <button
-                onClick={() => { sessionStorage.setItem('abc_goto','memories'); window.location.href='index.html'; }}
-                className="w-10 h-10 rounded-2xl bg-white shadow-sm flex items-center justify-center press-light"
-                style={{ border: 'none', cursor: 'pointer' }}>
-                <IconGem size={20} cls="text-violet-500"/>
-              </button>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <LangSwitch lang={lang} setLang={setLang} />
+                {/* Swap User button */}
+                <div style={{ position: 'relative', display: 'inline-flex' }} className="swap-user-wrap">
+                  <button
+                    onClick={() => { window.location.href = 'index.html'; }}
+                    title={T.swapUser}
+                    className="w-10 h-10 rounded-2xl bg-white shadow-sm flex items-center justify-center press-light swap-user-btn"
+                    style={{ border: 'none', cursor: 'pointer' }}>
+                    <IconGem size={20} cls="text-violet-500"/>
+                  </button>
+                  <span className="swap-user-tip">{T.swapUser}</span>
+                </div>
+              </div>
             </div>
 
             {/* ── Filter tabs ── */}
@@ -748,7 +910,7 @@
                 <button key={tab} onClick={() => setActiveTab(tab)}
                         className={`flex-shrink-0 px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all duration-200 press-light
                           ${activeTab === tab ? 'tab-pill-active' : 'tab-pill-inactive'}`}>
-                  {tab}
+                  {T.tabs[tab]}
                 </button>
               ))}
             </div>
@@ -756,12 +918,12 @@
 
             {/* ── Activity tiles ── */}
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-gray-900 text-[16px]">{MEMBER_NAME}'s Activities</h2>
-              <button className="text-[12px] text-violet-600 font-semibold press-light">See all</button>
+              <h2 className="font-bold text-gray-900 text-[16px]">{T.activitiesHdr(MEMBER_NAME)}</h2>
+              <button className="text-[12px] text-violet-600 font-semibold press-light">{T.seeAll}</button>
             </div>
 
             {filtered.length === 0 && (
-              <div className="text-center py-10 text-gray-400 text-sm italic">No activities in this category.</div>
+              <div className="text-center py-10 text-gray-400 text-sm italic">{T.noActivities}</div>
             )}
 
             <div className="grid grid-cols-2 gap-3">
@@ -781,14 +943,14 @@
                     </div>
                     {/* Label + status */}
                     <div>
-                      <p className="font-bold text-gray-800 text-[14px] leading-tight">{act.label}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">{act.sub}</p>
+                      <p className="font-bold text-gray-800 text-[14px] leading-tight">{(!act.isCustom && T.acts[act.id]?.label) || act.label}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{(!act.isCustom && T.acts[act.id]?.sub) || act.sub}</p>
                     </div>
                     {/* Badge + streak row */}
                     <div className="flex items-center justify-between">
                       <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full
                         ${act.status === 'ongoing' ? act.iconCls + ' bg-white/80' : 'text-gray-400 bg-gray-100'}`}>
-                        {STATUS_MAP[act.status]}
+                        {T.status[act.status]}
                       </span>
                       <span className="text-[12px] font-black text-gray-700 flex items-center gap-0.5">
                         🔥{act.streak}
@@ -807,11 +969,11 @@
                   <IconPlus size={24} cls=""/>
                 </div>
                 <div>
-                  <p className="font-bold text-violet-500 text-[14px]">Add New</p>
-                  <p className="text-[11px] text-violet-300 mt-0.5">Create a habit</p>
+                  <p className="font-bold text-violet-500 text-[14px]">{T.addNew}</p>
+                  <p className="text-[11px] text-violet-300 mt-0.5">{T.createHabit}</p>
                 </div>
                 <span className="self-start text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-violet-100 text-violet-500">
-                  Custom
+                  {T.custom}
                 </span>
               </button>
             </div>
@@ -820,7 +982,7 @@
           {/* ── Home button ── */}
           <div style={{ padding: '12px 20px 20px', flexShrink: 0 }}>
             <button
-              onClick={() => { sessionStorage.setItem('abc_goto','memories'); window.location.href='index.html'; }}
+              onClick={() => { sessionStorage.setItem('abc_goto','plan'); sessionStorage.setItem('abc_from','tracker'); window.location.href='index.html'; }}
               style={{
                 width: '100%', padding: '13px', borderRadius: 16, border: 'none',
                 background: 'linear-gradient(135deg,#7C3AED,#6D28D9)',
@@ -828,7 +990,7 @@
                 fontFamily: 'inherit', cursor: 'pointer', letterSpacing: '0.01em',
                 boxShadow: '0 4px 14px rgba(124,58,237,0.35)',
               }}>
-              🏠 Home
+              {T.familyBasecamp}
             </button>
           </div>
 
@@ -837,6 +999,7 @@
             <AvatarSheet
               onClose={() => setShowAvatarSheet(false)}
               onSave={handleAvatarSave}
+              lang={lang}
             />
           )}
 
@@ -847,13 +1010,18 @@
     /* ════════════════════════════════════════════════════
        DETAIL SCREEN
        ════════════════════════════════════════════════════ */
-    const DetailScreen = ({ activity, onBack, onUpdate, onRemove, onUpdateTip }) => {
+    const DetailScreen = ({ activity, onBack, onUpdate, onRemove, onUpdateTip, lang }) => {
       const { Icon } = activity;
       const [editingTip, setEditingTip] = useState(false);
       const [tipDraft,   setTipDraft]   = useState(activity.tip || '');
 
       /* Keep tipDraft in sync if tip changes from outside (e.g. after save) */
       useEffect(() => { setTipDraft(activity.tip || ''); }, [activity.tip]);
+
+      const T = TRANSLATIONS[lang] || TRANSLATIONS.en;
+      const actT = !activity.isCustom ? (T.acts[activity.id] || {}) : {};
+      const displayLabel = actT.label || activity.label;
+      const displaySub   = actT.sub   || activity.sub;
 
       function setStatus(s)  { onUpdate(activity.id, { status: s }); }
       function setFreq(f)    { onUpdate(activity.id, { freq: f }); }
@@ -871,7 +1039,7 @@
                   className="mx-5 flex items-center gap-1.5 text-violet-600 font-semibold text-[14px] press w-fit"
                   style={{ marginTop: 'max(16px, calc(env(safe-area-inset-top) + 8px))' }}>
             <IconBack size={18} cls=""/>
-            Back
+            {T.back}
           </button>
 
           {/* Scrollable detail body */}
@@ -887,14 +1055,14 @@
                 }
               </div>
               <div className="text-center">
-                <h1 className="text-[22px] font-black text-gray-900">{activity.label}</h1>
-                <p className="text-[13px] text-gray-500 mt-0.5">{activity.sub}</p>
+                <h1 className="text-[22px] font-black text-gray-900">{displayLabel}</h1>
+                <p className="text-[13px] text-gray-500 mt-0.5">{displaySub}</p>
               </div>
             </div>
 
             {/* ── Status toggle ── */}
             <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Status</p>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">{T.statusLabel}</p>
               <div className="flex gap-3">
                 {['ongoing','notplanned'].map(s => (
                   <button key={s} onClick={() => setStatus(s)}
@@ -904,7 +1072,7 @@
                                 ? 'bg-violet-600 text-white shadow-md'
                                 : 'bg-gray-200 text-gray-700'
                               : 'bg-gray-100 text-gray-400'}`}>
-                    {s === 'ongoing' ? '✅ Ongoing' : '⏸ Not Planned'}
+                    {s === 'ongoing' ? T.ongoingBtn : T.notPlannedBtn}
                   </button>
                 ))}
               </div>
@@ -912,7 +1080,7 @@
 
             {/* ── Frequency picker ── */}
             <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Frequency</p>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">{T.frequency}</p>
               <div className="flex flex-wrap gap-2">
                 {FREQ_OPTIONS.map(f => (
                   <button key={f} onClick={() => setFreq(f)}
@@ -920,7 +1088,7 @@
                             ${activity.freq === f
                               ? 'bg-violet-600 text-white shadow-sm'
                               : 'bg-gray-100 text-gray-500'}`}>
-                    {f}
+                    {T.freq[f] || f}
                   </button>
                 ))}
               </div>
@@ -930,18 +1098,18 @@
             <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Day Streak</p>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{T.dayStreak}</p>
                   <p className="text-[28px] font-black text-gray-800 leading-tight">{activity.streak} 🔥</p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <p className="text-[12px] text-gray-400 italic">
-                    {activity.streak === 0 ? 'Start today!' : 'Keep going!'}
+                    {activity.streak === 0 ? T.startToday : T.keepGoing}
                   </p>
                   {activity.streak > 0 && (
                     <button
                       onClick={() => onUpdate(activity.id, { streak: 0 })}
                       className="text-[10px] font-semibold text-red-400 border border-red-200 rounded-full px-2.5 py-0.5 press-light hover:bg-red-50">
-                      ↺ Reset
+                      {T.reset}
                     </button>
                   )}
                 </div>
@@ -959,7 +1127,7 @@
                   ...Array(days).fill({   label: 'D', cls: 'bg-gray-200   text-gray-600' }),
                 ];
                 if (badges.length === 0) return (
-                  <p className="text-[11px] text-gray-300 italic">Complete your first day to start tracking</p>
+                  <p className="text-[11px] text-gray-300 italic">{T.firstDay}</p>
                 );
                 return (
                   <div className="flex flex-wrap gap-1.5">
@@ -979,18 +1147,18 @@
               className="w-full mb-4 py-4 rounded-2xl font-black text-[16px] text-white press transition-all"
               style={{background:'linear-gradient(135deg,#16a34a,#15803d)',
                       boxShadow:'0 8px 28px rgba(22,163,74,0.38)'}}>
-              🎯 Mission Accomplished!
+              {T.mission}
             </button>
 
             {/* ── Why it matters (editable) ── */}
             <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-gray-900 text-[15px]">Why it matters</h2>
+                <h2 className="font-bold text-gray-900 text-[15px]">{T.whyItMatters}</h2>
                 {!editingTip && (
                   <button onClick={() => setEditingTip(true)}
                     className="flex items-center gap-1 text-[12px] text-violet-500 font-semibold press-light">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    Edit
+                    {T.edit}
                   </button>
                 )}
               </div>
@@ -1007,11 +1175,11 @@
                     <button onClick={handleSaveTip}
                       className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white press"
                       style={{ background: 'linear-gradient(135deg,#7C3AED,#6D28D9)' }}>
-                      Save
+                      {T.save}
                     </button>
                     <button onClick={() => { setTipDraft(activity.tip || ''); setEditingTip(false); }}
                       className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold bg-gray-100 text-gray-600 press-light">
-                      Cancel
+                      {T.cancel}
                     </button>
                   </div>
                 </>
@@ -1025,7 +1193,7 @@
               onClick={() => onRemove && onRemove(activity.id)}
               className="w-full py-3.5 rounded-2xl font-bold text-[14px] press mb-2"
               style={{ background: '#fff1f2', color: '#e11d48', border: '1.5px solid #fecdd3' }}>
-              {activity.isCustom ? '🗑 Delete Activity' : '✕ Remove from My List'}
+              {activity.isCustom ? T.deleteActivity : T.removeFromList}
             </button>
 
           </div>
@@ -1044,6 +1212,7 @@
       const [levelIdx,    setLevelIdx]    = useState(0);
       const [loading,     setLoading]     = useState(true);
       const [showAddSheet,  setShowAddSheet]  = useState(false);
+      const [lang,          setLang]          = useState(() => { try { return localStorage.getItem('wt_lang') || 'en'; } catch { return 'en'; } });
       const [hiddenActs,    setHiddenActs]    = useState([]);
       const [customTips,    setCustomTips]    = useState({});
 
@@ -1176,6 +1345,8 @@
               levelIdx={levelIdx}
               onLevelChange={handleLevelChange}
               onOpenAddSheet={() => setShowAddSheet(true)}
+              lang={lang}
+              setLang={setLang}
             />
           )}
           {page === 'detail' && selected && (
@@ -1185,6 +1356,7 @@
               onUpdate={handleUpdateActivity}
               onRemove={handleRemoveActivity}
               onUpdateTip={handleUpdateTip}
+              lang={lang}
             />
           )}
 
@@ -1197,6 +1369,7 @@
                 await handleAddActivity(actDef);
                 setShowAddSheet(false);
               }}
+              lang={lang}
             />
           )}
         </div>
