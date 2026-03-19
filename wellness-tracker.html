@@ -148,6 +148,42 @@
       );
     }
 
+    /* Local date string helper — YYYY-MM-DD in device's local timezone */
+    function localDateStr(d = new Date()) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    /* Load all streak logs for this member — returns { activityId: [dates] } */
+    async function sbLoadAllLogs() {
+      if (!sb || !MEMBER_ID) return {};
+      const prefix = `wt_log_${MEMBER_ID}_`;
+      const { data } = await sb.from('allusbasecamp_settings')
+        .select('key, value').like('key', prefix + '%');
+      if (!data) return {};
+      const map = {};
+      data.forEach(row => {
+        const actId = row.key.slice(prefix.length);
+        try { map[actId] = JSON.parse(row.value); } catch {}
+      });
+      return map;
+    }
+
+    /* Streak completion log — per member per activity, stored in settings */
+    async function sbLoadLog(activityId) {
+      if (!sb || !MEMBER_ID) return [];
+      const { data } = await sb.from('allusbasecamp_settings')
+        .select('value').eq('key', `wt_log_${MEMBER_ID}_${activityId}`).maybeSingle();
+      if (!data?.value) return [];
+      try { return JSON.parse(data.value); } catch { return []; }
+    }
+    async function sbSaveLog(activityId, log) {
+      if (!sb || !MEMBER_ID) return;
+      await sb.from('allusbasecamp_settings').upsert(
+        { key: `wt_log_${MEMBER_ID}_${activityId}`, value: JSON.stringify(log), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      );
+    }
+
     /* Upload a photo file or save an emoji string as the member's avatar */
     async function sbUpdateMemberAvatar(file, emojiStr) {
       if (!sb || !MEMBER_ID) return null;
@@ -383,6 +419,82 @@
     /* ════════════════════════════════════════════════════
        TRANSLATIONS  (EN / DE)
        ════════════════════════════════════════════════════ */
+    /* ── Build streak timeline chips from completion log ── */
+    function buildStreakChips(log, streak) {
+      if (!log || log.length === 0 || streak === 0) return [];
+      const sorted = [...new Set(log)].sort();
+      const hitSet = new Set(sorted);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const firstDate = new Date(sorted[0] + 'T00:00:00');
+      // Use local date string (not UTC) so dates always match what user sees
+      function ds(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+      function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+      function isoWeek(d) {
+        const t = new Date(d); t.setHours(0,0,0,0);
+        t.setDate(t.getDate() + 3 - (t.getDay() + 6) % 7);
+        const w1 = new Date(t.getFullYear(), 0, 4);
+        return 1 + Math.round(((t - w1) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7);
+      }
+      function weekStart(d) {
+        const r = new Date(d); r.setHours(0,0,0,0);
+        r.setDate(r.getDate() - ((r.getDay() + 6) % 7)); return r;
+      }
+      const chips = [];
+      if (streak < 7) {
+        // Day scale: chip per day, label = day-of-month
+        let cur = new Date(firstDate);
+        while (ds(cur) <= ds(today)) {
+          const d = ds(cur);
+          chips.push({ label: String(cur.getDate()), hit: hitSet.has(d), prefix: '' });
+          cur = addDays(cur, 1);
+        }
+      } else if (streak < 30) {
+        // Week scale: chip per ISO week, label = "W" + week-number
+        let cur = weekStart(firstDate);
+        while (cur <= today) {
+          const end = addDays(cur, 6);
+          const hit = sorted.some(d => d >= ds(cur) && d <= ds(end));
+          chips.push({ label: 'W' + String(isoWeek(cur)).padStart(2,'0'), hit, prefix: '' });
+          cur = addDays(cur, 7);
+        }
+      } else if (streak < 90) {
+        // Month scale: chip per month, label = "M" + month-number
+        let y = firstDate.getFullYear(), m = firstDate.getMonth();
+        while (y < today.getFullYear() || (y === today.getFullYear() && m <= today.getMonth())) {
+          const hit = sorted.some(d => { const r = new Date(d); return r.getFullYear()===y && r.getMonth()===m; });
+          chips.push({ label: 'M' + String(m+1).padStart(2,'0'), hit, prefix: '' });
+          m++; if (m > 11) { m = 0; y++; }
+        }
+      } else if (streak < 180) {
+        // Quarter scale: chip per quarter
+        let y = firstDate.getFullYear(), q = Math.floor(firstDate.getMonth()/3);
+        const ty = today.getFullYear(), tq = Math.floor(today.getMonth()/3);
+        while (y < ty || (y===ty && q<=tq)) {
+          const hit = sorted.some(d => { const r = new Date(d); return r.getFullYear()===y && Math.floor(r.getMonth()/3)===q; });
+          chips.push({ label: 'Q'+(q+1), hit, prefix: '' });
+          q++; if (q > 3) { q = 0; y++; }
+        }
+      } else if (streak < 365) {
+        // Half-year scale
+        let y = firstDate.getFullYear(), h = Math.floor(firstDate.getMonth()/6);
+        const ty = today.getFullYear(), th = Math.floor(today.getMonth()/6);
+        while (y < ty || (y===ty && h<=th)) {
+          const hit = sorted.some(d => { const r = new Date(d); return r.getFullYear()===y && Math.floor(r.getMonth()/6)===h; });
+          chips.push({ label: 'H'+(h+1), hit, prefix: '' });
+          h++; if (h > 1) { h = 0; y++; }
+        }
+      } else {
+        // Year scale
+        let y = firstDate.getFullYear();
+        while (y <= today.getFullYear()) {
+          const hit = sorted.some(d => new Date(d).getFullYear()===y);
+          chips.push({ label: String(y), hit, prefix: '' });
+          y++;
+        }
+      }
+      return chips;
+    }
+
     const TRANSLATIONS = {
       en: {
         greeting:        (n) => `Ready, ${n}?`,
@@ -414,6 +526,7 @@
         edit:            'Edit',
         save:            'Save',
         cancel:          'Cancel',
+        todayProgress:   "Today's Progress",
         firstDay:        'Complete your first day to start tracking',
         deleteActivity:  '🗑 Delete Activity',
         removeFromList:  '✕ Remove from My List',
@@ -468,6 +581,7 @@
         edit:            'Bearbeiten',
         save:            'Speichern',
         cancel:          'Abbrechen',
+        todayProgress:   'Heutiger Fortschritt',
         firstDay:        'Schließe deinen ersten Tag ab, um zu beginnen',
         deleteActivity:  '🗑 Aktivität löschen',
         removeFromList:  '✕ Aus meiner Liste entfernen',
@@ -767,7 +881,7 @@
     /* ════════════════════════════════════════════════════
        HOME SCREEN
        ════════════════════════════════════════════════════ */
-    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange, onOpenAddSheet, lang, setLang }) => {
+    const HomeScreen = ({ activities, onSelectActivity, levelIdx, onLevelChange, onOpenAddSheet, todayDone, lang, setLang }) => {
       const [activeTab,       setActiveTab]       = useState('All');
       const [showLevelPicker, setShowLevelPicker] = useState(false);
       const [avatarUrl,       setAvatarUrl]       = useState(MEMBER_AVATAR);
@@ -904,6 +1018,64 @@
               </div>
             </div>
 
+            {/* ── Activity progress by frequency ── */}
+            {(() => {
+              const ongoing = activities.filter(a => a.status === 'ongoing');
+              if (ongoing.length === 0) return null;
+              // Group ongoing activities by frequency
+              const groups = {};
+              ongoing.forEach(a => {
+                if (!groups[a.freq]) groups[a.freq] = { total: 0, done: 0 };
+                groups[a.freq].total++;
+                if (todayDone && todayDone.has(a.id)) groups[a.freq].done++;
+              });
+              const entries = FREQ_OPTIONS.filter(f => groups[f]);
+              if (entries.length === 0) return null;
+              const FREQ_COLORS = {
+                'Daily':    { bar: '#16a34a', bg: '#dcfce7', text: '#15803d' },
+                'Weekdays': { bar: '#0284c7', bg: '#e0f2fe', text: '#0369a1' },
+                '3×/week':  { bar: '#9333ea', bg: '#f3e8ff', text: '#7e22ce' },
+                'Weekly':   { bar: '#ea580c', bg: '#ffedd5', text: '#c2410c' },
+                'Monthly':  { bar: '#db2777', bg: '#fce7f3', text: '#be185d' },
+              };
+              return (
+                <div className="bg-white rounded-2xl px-4 py-3 shadow-sm mb-4">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2.5">{T.todayProgress || 'Today\'s Progress'}</p>
+                  <div className="flex flex-col gap-2">
+                    {entries.map(f => {
+                      const { total, done } = groups[f];
+                      const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+                      const col = FREQ_COLORS[f] || { bar: '#6b7280', bg: '#f3f4f6', text: '#374151' };
+                      const freqLabel = T.freq[f] || f;
+                      return (
+                        <div key={f} className="flex items-center gap-2.5">
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, color: col.text,
+                            background: col.bg, borderRadius: 6,
+                            padding: '2px 7px', flexShrink: 0, minWidth: 62, textAlign: 'center',
+                          }}>{freqLabel}</span>
+                          <div style={{ flex: 1, height: 7, background: '#f3f4f6', borderRadius: 10, overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%', borderRadius: 10,
+                              background: col.bar,
+                              width: `${pct}%`,
+                              transition: 'width 0.4s ease',
+                            }}/>
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', flexShrink: 0, minWidth: 36, textAlign: 'right' }}>
+                            {done}/{total}
+                          </span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: pct === 100 ? col.text : '#9ca3af', flexShrink: 0, minWidth: 32 }}>
+                            {pct}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ── Filter tabs ── */}
             <div className="flex gap-2 overflow-x-auto no-scroll mb-5 -mx-1 px-1 pb-0.5">
               {TABS.map(tab => (
@@ -1010,13 +1182,19 @@
     /* ════════════════════════════════════════════════════
        DETAIL SCREEN
        ════════════════════════════════════════════════════ */
-    const DetailScreen = ({ activity, onBack, onUpdate, onRemove, onUpdateTip, lang }) => {
+    const DetailScreen = ({ activity, onBack, onUpdate, onRemove, onUpdateTip, onLogToday, lang }) => {
       const { Icon } = activity;
       const [editingTip, setEditingTip] = useState(false);
       const [tipDraft,   setTipDraft]   = useState(activity.tip || '');
+      const [log, setLog] = useState([]);
 
       /* Keep tipDraft in sync if tip changes from outside (e.g. after save) */
       useEffect(() => { setTipDraft(activity.tip || ''); }, [activity.tip]);
+
+      /* Load completion log when activity opens */
+      useEffect(() => {
+        sbLoadLog(activity.id).then(l => setLog(l || [])).catch(() => {});
+      }, [activity.id]);
 
       const T = TRANSLATIONS[lang] || TRANSLATIONS.en;
       const actT = !activity.isCustom ? (T.acts[activity.id] || {}) : {};
@@ -1030,6 +1208,32 @@
         onUpdateTip && onUpdateTip(activity.id, tipDraft.trim() || activity.tip);
         setEditingTip(false);
       }
+
+      function handleMission() {
+        const todayStr = localDateStr();
+        if (log.includes(todayStr)) return; // already logged today — no double-count
+        const newLog = [...log, todayStr];
+        setLog(newLog);
+        sbSaveLog(activity.id, newLog).catch(console.error);
+        onLogToday && onLogToday(activity.id, true);
+        onUpdate(activity.id, { streak: activity.streak + 1 });
+      }
+
+      function handleReset() {
+        setLog([]);
+        sbSaveLog(activity.id, []).catch(console.error);
+        onLogToday && onLogToday(activity.id, false);
+        onUpdate(activity.id, { streak: 0 });
+      }
+
+      /* Today's date parts for sticky note */
+      const _now = new Date();
+      const _days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const todayDay   = _days[_now.getDay()];
+      const todayDate  = _now.getDate();
+      const todayMonth = _months[_now.getMonth()];
+      const todayYear  = _now.getFullYear();
 
       return (
         <div className="flex flex-col h-full slide-in-right">
@@ -1046,7 +1250,21 @@
           <div className="flex-1 overflow-y-auto no-scroll px-5 pb-12 mt-3">
 
             {/* ── Hero card ── */}
-            <div className={`${activity.bg} rounded-3xl p-6 flex flex-col items-center gap-3 mb-5`}>
+            <div className={`${activity.bg} rounded-3xl p-6 flex flex-col items-center gap-3 mb-5`}
+                 style={{ position: 'relative' }}>
+              {/* Today's date sticky note */}
+              <div style={{
+                position: 'absolute', top: 12, right: 14,
+                background: '#fef08a',
+                borderRadius: 10, padding: '5px 9px',
+                boxShadow: '2px 3px 10px rgba(0,0,0,0.18)',
+                transform: 'rotate(2.5deg)',
+                textAlign: 'center', zIndex: 1, minWidth: 44,
+              }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{todayDay}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: '#78350f', lineHeight: 1 }}>{todayDate}</div>
+                <div style={{ fontSize: 8, fontWeight: 600, color: '#92400e' }}>{todayMonth} {todayYear}</div>
+              </div>
               <div className={`w-20 h-20 rounded-2xl ${activity.iconBg} flex items-center justify-center ${activity.iconCls}`}
                    style={{boxShadow:'0 4px 20px rgba(0,0,0,0.08)'}}>
                 {activity.iconEmoji
@@ -1107,7 +1325,7 @@
                   </p>
                   {activity.streak > 0 && (
                     <button
-                      onClick={() => onUpdate(activity.id, { streak: 0 })}
+                      onClick={handleReset}
                       className="text-[10px] font-semibold text-red-400 border border-red-200 rounded-full px-2.5 py-0.5 press-light hover:bg-red-50">
                       {T.reset}
                     </button>
@@ -1115,27 +1333,43 @@
                 </div>
               </div>
 
-              {/* ── Streak badge row: D / W / M ── */}
+              {/* ── Streak timeline chips (log-based, alternating colors) ── */}
               {(() => {
-                const s = activity.streak;
-                const months = Math.floor(s / 30);
-                const weeks  = Math.floor((s % 30) / 7);
-                const days   = s % 7;
-                const badges = [
-                  ...Array(months).fill({ label: 'M', cls: 'bg-rose-500   text-white' }),
-                  ...Array(weeks).fill({  label: 'W', cls: 'bg-violet-500 text-white' }),
-                  ...Array(days).fill({   label: 'D', cls: 'bg-gray-200   text-gray-600' }),
-                ];
-                if (badges.length === 0) return (
+                const chips = buildStreakChips(log, activity.streak);
+                if (chips.length === 0) return (
                   <p className="text-[11px] text-gray-300 italic">{T.firstDay}</p>
                 );
+                const HIT_COLORS = [
+                  { bg: '#16a34a', color: '#fff' },
+                  { bg: '#86efac', color: '#14532d' },
+                ];
+                let hitIdx = 0;
                 return (
                   <div className="flex flex-wrap gap-1.5">
-                    {badges.map((b, i) => (
-                      <span key={i} className={`w-7 h-7 rounded-lg text-[10px] font-black flex items-center justify-center ${b.cls}`}>
-                        {b.label}
-                      </span>
-                    ))}
+                    {chips.map((c, i) => {
+                      if (!c.hit) {
+                        return (
+                          <span key={i} style={{
+                            minWidth: 28, height: 28, borderRadius: 8,
+                            fontSize: 9, fontWeight: 700,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: '0 4px',
+                            background: '#F3F4F6', color: '#D1D5DB',
+                            textDecoration: 'line-through',
+                          }}>{c.label}</span>
+                        );
+                      }
+                      const col = HIT_COLORS[hitIdx % 2]; hitIdx++;
+                      return (
+                        <span key={i} style={{
+                          minWidth: 28, height: 28, borderRadius: 8,
+                          fontSize: 9, fontWeight: 800,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          padding: '0 4px',
+                          background: col.bg, color: col.color,
+                        }}>{c.label}</span>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -1143,7 +1377,7 @@
 
             {/* ── Mission Accomplished ── */}
             <button
-              onClick={() => onUpdate(activity.id, { streak: activity.streak + 1 })}
+              onClick={handleMission}
               className="w-full mb-4 py-4 rounded-2xl font-black text-[16px] text-white press transition-all"
               style={{background:'linear-gradient(135deg,#16a34a,#15803d)',
                       boxShadow:'0 8px 28px rgba(22,163,74,0.38)'}}>
@@ -1215,6 +1449,7 @@
       const [lang,          setLang]          = useState(() => { try { return localStorage.getItem('wt_lang') || 'en'; } catch { return 'en'; } });
       const [hiddenActs,    setHiddenActs]    = useState([]);
       const [customTips,    setCustomTips]    = useState({});
+      const [todayDone,     setTodayDone]     = useState(new Set()); // activityIds completed today
 
       /* ── Load everything from Supabase in one round-trip ── */
       useEffect(() => {
@@ -1223,7 +1458,16 @@
           sbLoadCustomActs(),
           sbLoadHiddenActs(),
           sbLoadCustomTips(),
-        ]).then(([result, defs, hidden, tips]) => {
+          sbLoadAllLogs(),
+        ]).then(([result, defs, hidden, tips, logsMap]) => {
+          // Compute which activities were completed today
+          const today = localDateStr();
+          const done = new Set(
+            Object.entries(logsMap)
+              .filter(([, dates]) => Array.isArray(dates) && dates.includes(today))
+              .map(([id]) => id)
+          );
+          setTodayDone(done);
           const wellnessRows = result?.acts || [];
 
           // Build hydrated built-in list (skip hidden, apply custom tips)
@@ -1322,6 +1566,14 @@
         sbSaveLevel(idx).catch(console.error);
       }, []);
 
+      const handleLogToday = useCallback((actId, done) => {
+        setTodayDone(prev => {
+          const next = new Set(prev);
+          done ? next.add(actId) : next.delete(actId);
+          return next;
+        });
+      }, []);
+
       const handleBack = useCallback(() => {
         setPage('home');
         setSelected(null);
@@ -1345,6 +1597,7 @@
               levelIdx={levelIdx}
               onLevelChange={handleLevelChange}
               onOpenAddSheet={() => setShowAddSheet(true)}
+              todayDone={todayDone}
               lang={lang}
               setLang={setLang}
             />
@@ -1356,6 +1609,7 @@
               onUpdate={handleUpdateActivity}
               onRemove={handleRemoveActivity}
               onUpdateTip={handleUpdateTip}
+              onLogToday={handleLogToday}
               lang={lang}
             />
           )}
